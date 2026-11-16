@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>QuickMark Pro</title>
+  <link rel="stylesheet" href="../lib/common.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="qm-header">
+    <div class="qm-brand"><span class="qm-logo"></span>QuickMark Pro</div>
+    <div id="profile-switcher" class="qm-profile-switcher" title="Ganti profil"></div>
+  </header>
+
+  <section id="save-card" class="qm-save-card">
+    <div class="qm-save-row">
+      <img id="page-favicon" class="qm-favicon" alt="">
+      <div class="qm-page-info">
+        <div id="page-title" class="qm-page-title"></div>
+        <div id="page-url" class="qm-page-url mono"></div>
+      </div>
+    </div>
+    <div class="qm-cat-wrap">
+      <div id="category-chips" class="qm-chips collapsed"></div>
+      <button id="cat-toggle" class="qm-cat-toggle hidden" title="Tampilkan semua kategori"></button>
+    </div>
+    <div id="dup-banner" class="qm-dup hidden"></div>
+    <div id="save-extra" class="qm-save-extra hidden">
+      <input id="note-input" type="text" placeholder="Catatan (opsional)">
+      <div class="qm-flags">
+        <label><input type="checkbox" id="flag-readlater"> Baca nanti</label>
+        <label><input type="checkbox" id="flag-favorite"> Favorit</label>
+      </div>
+    </div>
+    <div class="qm-save-actions">
+      <button id="btn-expand" class="qm-btn-ghost" title="Opsi tambahan">…</button>
+      <button id="btn-save" class="qm-btn-primary">Simpan</button>
+    </div>
+  </section>
+
+  <section class="qm-search-section">
+    <input id="search-input" type="text" placeholder="Cari bookmark (fuzzy)…" autocomplete="off">
+    <div id="search-filters" class="qm-chips small"></div>
+    <div id="search-results" class="qm-results"></div>
+  </section>
+
+  <footer class="qm-footer">
+    <button id="btn-panel" class="qm-btn-ghost" title="Buka di side panel">Panel</button>
+    <button id="btn-manager" class="qm-btn-ghost" title="Buka manager penuh">Kelola</button>
+  </footer>
+
+  <div id="toast-host"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

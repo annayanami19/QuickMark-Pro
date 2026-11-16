@@ -1,0 +1,67 @@
+/* popup.css — 360x480, save dulu search kedua (PRD §5.2). */
+body { width: 360px; height: 480px; display: flex; flex-direction: column; overflow: hidden; }
+
+.qm-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.qm-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.qm-logo { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+
+.qm-profile-switcher { position: relative; }
+.qm-profile-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface);
+}
+.qm-profile-dot { width: 8px; height: 8px; border-radius: 50%; }
+.qm-profile-menu {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  min-width: 160px; z-index: 50;
+  padding: 6px; display: none; flex-direction: column; gap: 2px;
+}
+.qm-profile-menu.open { display: flex; }
+.qm-profile-item { text-align: left; padding: 7px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+.qm-profile-item:hover { background: var(--surface-strong); }
+.qm-profile-item.active { color: var(--accent); }
+
+.qm-save-card { margin: 10px 14px 0; padding: 12px; }
+.qm-save-row { display: flex; gap: 10px; align-items: flex-start; }
+.qm-page-info { flex: 1; min-width: 0; }
+.qm-page-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qm-page-url { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qm-save-card .qm-chips { margin-top: 10px; }
+.qm-dup { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.3); font-size: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.qm-save-extra { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.qm-flags { display: flex; gap: 16px; color: var(--text-dim); font-size: 12px; }
+.qm-flags label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.qm-save-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+.qm-search-section { flex: 1; display: flex; flex-direction: column; padding: 10px 14px; min-height: 0; }
+#search-filters { margin-top: 8px; }
+.qm-results { flex: 1; overflow-y: auto; margin-top: 6px; }
+.qm-empty { color: var(--text-dim); text-align: center; padding: 18px 0; }
+
+.qm-footer { display: flex; justify-content: space-between; padding: 8px 14px; border-top: 1px solid var(--border); }
+
+/* Chips kategori collapsible — 1 baris default, expand menampilkan semua (scrollable). */
+.qm-cat-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.qm-chips.collapsed {
+  max-height: 30px;
+  overflow: hidden;
+  mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+}
+.qm-chips { transition: max-height .15s ease; }
+.qm-chips.expanded { max-height: 120px; overflow-y: auto; padding-right: 2px; }
+.qm-cat-toggle {
+  align-self: flex-end;
+  font-size: 11px; color: var(--accent);
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+.qm-cat-toggle:hover { filter: brightness(1.2); }

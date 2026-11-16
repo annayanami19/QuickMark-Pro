@@ -1,0 +1,204 @@
+/* manager.css — halaman penuh: sidebar nav + 6 view (PRD §5.2). */
+body { display: flex; height: 100vh; overflow: hidden; }
+
+.mg-sidebar {
+  width: 220px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.mg-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; padding: 0 8px 14px; }
+.qm-logo { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+#mg-nav { display: flex; flex-direction: column; gap: 2px; }
+#mg-nav button { text-align: left; padding: 9px 12px; border-radius: 10px; color: var(--text-dim); }
+#mg-nav button:hover { background: var(--surface-strong); color: var(--text); }
+#mg-nav button.active { background: var(--surface-strong); color: var(--accent); font-weight: 600; }
+.mg-profile-info { margin-top: auto; padding: 10px; border-radius: 10px; border: 1px solid var(--border); font-size: 12px; color: var(--text-dim); }
+.mg-profile-info b { color: var(--text); }
+
+.mg-main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.mg-view { display: none; flex: 1; overflow-y: auto; padding: 20px 24px; }
+.mg-view.active { display: block; }
+.mg-view h1 { font-size: 20px; margin-bottom: 4px; }
+.mg-view .mg-sub { color: var(--text-dim); margin-bottom: 16px; }
+
+/* Toolbar & tabel bookmark */
+.mg-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.mg-toolbar input[type="text"] { max-width: 320px; }
+.mg-bulk {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; margin-bottom: 10px;
+  border-radius: 10px; border: 1px solid var(--accent);
+  background: rgba(94, 234, 212, 0.08);
+  font-size: 12px;
+}
+.mg-table { width: 100%; border-collapse: collapse; }
+.mg-table th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--text-dim); padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.mg-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+.mg-table tr:hover td { background: var(--surface-strong); }
+.mg-table .t-title { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.mg-table .t-url { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: 11px; }
+.mg-cat-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); }
+.mg-cat-dot { width: 7px; height: 7px; border-radius: 50%; }
+.mg-flag { color: var(--warn); margin-right: 3px; cursor: pointer; }
+.mg-flag.off { color: var(--text-dim); opacity: 0.5; }
+
+/* Kartu statistik */
+.mg-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.mg-stat-card { padding: 14px; }
+.mg-stat-card .v { font-size: 24px; font-weight: 700; }
+.mg-stat-card .l { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.mg-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.mg-bar-row .lb { width: 130px; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.mg-bar-track { flex: 1; height: 10px; border-radius: 999px; background: var(--surface-strong); overflow: hidden; }
+.mg-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.mg-bar-row .n { width: 40px; font-size: 12px; }
+
+/* Kartu umum & form */
+.mg-card { padding: 16px; margin-bottom: 14px; }
+.mg-card h2 { font-size: 14px; margin-bottom: 10px; }
+.mg-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.mg-row label { color: var(--text-dim); font-size: 12px; min-width: 130px; }
+.mg-row input[type="text"] { max-width: 260px; width: auto; }
+select, .qm-select {
+  font: inherit; color: var(--text);
+  background: var(--surface-strong);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px;
+}
+.mg-list-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.mg-list-row .grow { flex: 1; }
+/* Toggle aktif kategori + badge nonaktif (view Kategori). */
+.mg-cat-enable { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); cursor: pointer; user-select: none; white-space: nowrap; }
+.mg-tag-off { font-size: 10px; color: #fbbf24; border: 1px solid #fbbf2455; border-radius: 8px; padding: 1px 7px; margin-left: 6px; white-space: nowrap; }
+.mg-muted { color: var(--text-dim); font-size: 12px; }
+
+/* View Kategori: barisan datar — parent profil = baris sendiri, anak kategori menjorok di bawahnya. */
+.mg-cat-head { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.mg-cat-head:not(:first-child) { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.mg-cat-head b { font-size: 13px; }
+.mg-cat-head .mg-muted { font-size: 11px; }
+.mg-cat-chev { color: var(--text-dim); font-size: 11px; display: inline-block; transition: transform 0.12s ease; }
+.mg-cat-chev.open { transform: rotate(90deg); }
+.mg-cat-body { margin-left: 20px; }
+.mg-cat-body .mg-list-row:last-child { border-bottom: none; }
+.mg-cat-empty { padding: 8px 0 4px; }
+
+/* Baris bookmark di tampilan hierarki (anak grup profil). */
+.bm-row .grow { min-width: 0; }
+.bm-row .t-url { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-row .mg-cat-chip, .bm-row .qm-btn-ghost { flex-shrink: 0; }
+/* Level 2 (sub-grup kategori) & level 3 (baris bookmark) di tampilan hierarki. */
+.mg-cat-head.sub { border-top: none; margin-top: 6px; margin-left: 14px; padding-top: 0; }
+.mg-cat-head.sub b { font-size: 12px; }
+.mg-cat-body.deep { margin-left: 34px; }
+
+/* Sub-bagian dalam satu card (dipakai card Import: JSON semua-profil vs HTML/native per-profil). */
+.mg-imp-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; color: var(--text-dim); margin: 10px 0 8px; }
+.mg-imp-sub:first-of-type { margin-top: 0; }
+.mg-imp-sub:not(:first-of-type) { border-top: 1px solid var(--border); padding-top: 12px; }
+
+/* Dropdown kategori ber-cari (toolbar/bulk/edit/FAB) — pengganti <select> panjang. */
+.qm-cdd { position: relative; flex: 1; min-width: 150px; max-width: 320px; }
+.mg-modal .qm-cdd, .mg-fab-panel .qm-cdd { max-width: none; }
+.qm-cdd-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: 100%; text-align: left;
+  font: inherit; color: var(--text);
+  background: var(--surface-strong);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px;
+}
+.qm-cdd-btn:hover { border-color: var(--accent); }
+.qm-cdd-lab { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qm-cdd-car { color: var(--text-dim); font-size: 10px; flex-shrink: 0; }
+.qm-cdd-pop {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 300;
+  background: var(--bg);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.qm-cdd-pop.open { display: block; }
+.qm-cdd-search {
+  width: 100%;
+  font: inherit; font-size: 12px; color: var(--text);
+  background: var(--surface-strong);
+  border: none; border-bottom: 1px solid var(--border);
+  padding: 7px 10px;
+  outline: none;
+}
+.qm-cdd-list { max-height: 210px; overflow-y: auto; overscroll-behavior: contain; }
+.qm-cdd-group { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); padding: 7px 10px 2px; }
+.qm-cdd-item {
+  display: block; width: 100%; text-align: left;
+  font: inherit; font-size: 12px; color: var(--text);
+  background: none; border: none;
+  padding: 6px 12px; cursor: pointer;
+}
+.qm-cdd-item:hover { background: var(--surface-strong); }
+.qm-cdd-item.sel { color: var(--accent); }
+.qm-cdd-tag { color: var(--warn); font-size: 11px; }
+.qm-cdd-empty { padding: 8px 12px; font-size: 12px; color: var(--text-dim); }
+
+/* Dataset kategori bawaan — grid kolom rapat, bukan daftar memanjang (feedback UI). */
+.mg-dataset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 16px;
+}
+.mg-dataset-grid .ds-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+}
+.mg-dataset-grid .ds-item input[type="checkbox"] { margin: 0; }
+
+/* Modal edit */
+.mg-modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.mg-modal { width: 480px; padding: 20px; }
+.mg-modal h2 { margin-bottom: 12px; }
+.mg-modal .mg-row label { min-width: 90px; }
+
+/* ---------- Panel cepat (FAB mengambang) ---------- */
+.mg-fab {
+  position: fixed; z-index: 250;
+  right: 24px; bottom: 24px;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #08131a;
+  font-size: 26px; font-weight: 700; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.mg-fab:hover { transform: scale(1.06); box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45); }
+.mg-fab.dragging { cursor: grabbing; transform: scale(1.1); transition: none; }
+
+.mg-fab-panel {
+  position: fixed; z-index: 251;
+  width: 320px;
+  padding: 14px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+}
+.mg-fab-panel h2 { font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+.mg-fab-panel .mg-row label { min-width: 70px; }
+.mg-fab-panel .mg-row input[type="text"] { max-width: none; flex: 1; width: auto; }
+.mg-fab-panel .mg-row select { flex: 1; }
+.mg-fab-hint { font-size: 11px; color: var(--text-dim); margin-top: 8px; }

@@ -1,0 +1,20 @@
+# QuickMark Pro
+node_modules/
+*.log
+*.zip
+.DS_Store
+Thumbs.db
+
+# Kredensial & kunci (chrome store / OAuth) — jangan pernah masuk commit
+.env
+*.env
+*.pem
+*.key
+*.crx
+
+# Build/export artifacts (extension dibagikan sebagai folder, bukan build)
+dist/
+release/
+
+# Config harness lokal
+.zcode/

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>QuickMark Pro — Panel</title>
+  <link rel="stylesheet" href="../lib/common.css">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="pn-header">
+    <div class="pn-brand"><span class="qm-logo"></span>QuickMark Pro</div>
+    <div id="profile-switcher" class="qm-profile-switcher"></div>
+    <button id="btn-manager" class="qm-btn-ghost" title="Buka manager">Kelola</button>
+  </header>
+
+  <div class="pn-search"><input id="search-input" type="text" placeholder="Cari bookmark (fuzzy)…" autocomplete="off"></div>
+
+  <div id="filter-chips" class="pn-filters qm-chips small"></div>
+  <div id="cat-chips" class="pn-cats qm-chips"></div>
+
+  <div id="list" class="pn-list"></div>
+  <div id="badge-bar" class="pn-badgebar"></div>
+
+  <div id="toast-host"></div>
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

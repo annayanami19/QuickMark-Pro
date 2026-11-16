@@ -1,0 +1,129 @@
+/* quick-panel.css — panel cepat di halaman web (content script).
+   Semua selector di-prefix qmp- supaya tidak bentrok dengan CSS halaman. */
+
+#qmp-root { all: initial; }
+
+#qmp-fab {
+  all: initial;
+  position: fixed !important;
+  right: 20px; bottom: 20px;
+  width: 46px; height: 46px;
+  z-index: 2147483646;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5eead4, #a78bfa);
+  color: #08131a;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 24px; font-weight: 700; line-height: 46px;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+#qmp-fab:hover { transform: scale(1.07); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5); }
+#qmp-fab.qmp-dragging { cursor: grabbing; transform: scale(1.1); transition: none; }
+
+#qmp-panel {
+  all: initial;
+  position: fixed !important;
+  width: 300px;
+  z-index: 2147483647;
+  background: #101826;
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  padding: 12px;
+}
+#qmp-panel * { all: unset; display: block; }
+
+#qmp-panel .qmp-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; font-weight: 700; margin-bottom: 8px;
+}
+#qmp-panel .qmp-close { cursor: pointer; font-size: 15px; color: #8b98a9; }
+#qmp-panel .qmp-close:hover { color: #e6edf3; }
+
+#qmp-panel .qmp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+#qmp-panel .qmp-row label { width: 62px; flex-shrink: 0; color: #8b98a9; font-size: 11px; }
+#qmp-panel input[type="text"], #qmp-panel select {
+  flex: 1; display: block; width: auto;
+  background: #1a2434; color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 5px 8px;
+  font: inherit; font-size: 12px;
+}
+#qmp-panel input[type="text"]:focus, #qmp-panel select:focus {
+  outline: none; border-color: #5eead4;
+}
+#qmp-panel .qmp-flags { display: flex; gap: 12px; }
+#qmp-panel .qmp-flags label {
+  display: flex; align-items: center; gap: 5px;
+  width: auto; color: #e6edf3; font-size: 11px; cursor: pointer;
+}
+#qmp-panel input[type="checkbox"] { accent-color: #5eead4; }
+/* Dropdown kategori ber-cari (scroll di dalam, tidak memanjang). */
+#qmp-panel .qmp-dd { flex: 1; position: relative; min-width: 0; display: block; }
+#qmp-panel .qmp-dd-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  width: 100%; box-sizing: border-box;
+  background: #1a2434; color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 5px 8px;
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+#qmp-panel .qmp-dd-btn:hover { border-color: #5eead4; }
+#qmp-panel .qmp-dd-lab { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#qmp-panel .qmp-dd-car { color: #8b98a9; font-size: 10px; flex-shrink: 0; }
+#qmp-panel .qmp-dd-pop {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #101826;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  z-index: 5;
+}
+#qmp-panel .qmp-dd-pop.qmp-open { display: block; }
+#qmp-panel .qmp-dd-search {
+  width: 100%; box-sizing: border-box;
+  background: #1a2434; color: #e6edf3;
+  border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0; padding: 6px 8px;
+  font: inherit; font-size: 12px;
+}
+#qmp-panel .qmp-dd-search:focus { outline: none; border-bottom-color: #5eead4; }
+#qmp-panel .qmp-dd-list { max-height: 190px; overflow-y: auto; overscroll-behavior: contain; }
+#qmp-panel .qmp-dd-group { font-size: 10px; font-weight: 700; color: #8b98a9; padding: 5px 8px 2px; }
+#qmp-panel .qmp-dd-item {
+  display: block; width: 100%; box-sizing: border-box; text-align: left;
+  color: #e6edf3; font-size: 12px;
+  padding: 5px 10px; cursor: pointer;
+}
+#qmp-panel .qmp-dd-item:hover { background: #1a2434; }
+#qmp-panel .qmp-dd-item.sel { color: #5eead4; }
+#qmp-panel .qmp-dd-empty { padding: 8px; color: #8b98a9; font-size: 11px; }
+#qmp-panel .qmp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+#qmp-panel .qmp-save {
+  display: inline-block; cursor: pointer;
+  background: linear-gradient(135deg, #5eead4, #a78bfa);
+  color: #08131a; font-weight: 700; font-size: 12px;
+  border: none; border-radius: 999px; padding: 6px 18px;
+}
+#qmp-panel .qmp-save:hover { filter: brightness(1.1); }
+
+#qmp-toast {
+  all: initial;
+  position: fixed !important;
+  z-index: 2147483647;
+  background: #1a2434; color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  padding: 8px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}

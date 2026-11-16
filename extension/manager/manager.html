@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>QuickMark Pro — Manager</title>
+  <link rel="stylesheet" href="../lib/common.css">
+  <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+  <aside class="mg-sidebar">
+    <div class="mg-brand"><span class="qm-logo"></span>QuickMark Pro</div>
+    <nav id="mg-nav">
+      <button data-view="bookmarks" class="active">Bookmark</button>
+      <button data-view="categories">Kategori</button>
+      <button data-view="profiles">Profil</button>
+      <button data-view="stats">Statistik</button>
+      <button data-view="data">Data &amp; Backup</button>
+      <button data-view="settings">Pengaturan</button>
+    </nav>
+    <div id="mg-profile-info" class="mg-profile-info"></div>
+  </aside>
+
+  <main class="mg-main">
+    <section id="view-bookmarks" class="mg-view active"></section>
+    <section id="view-categories" class="mg-view"></section>
+    <section id="view-profiles" class="mg-view"></section>
+    <section id="view-stats" class="mg-view"></section>
+    <section id="view-data" class="mg-view"></section>
+    <section id="view-settings" class="mg-view"></section>
+  </main>
+
+  <div id="modal-host"></div>
+
+  <!-- Panel cepat: FAB mengambang, bisa di-drag (mode corner/free — Pengaturan) -->
+  <div id="fab" class="mg-fab" title="Panel cepat — tambah bookmark">+</div>
+  <div id="fab-panel" class="mg-fab-panel glass hidden"></div>
+
+  <div id="toast-host"></div>
+  <script type="module" src="manager.js"></script>
+</body>
+</html>
