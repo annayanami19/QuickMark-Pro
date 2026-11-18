@@ -201,9 +201,15 @@
     $('qmp-mode').addEventListener('change', async (ev) => {
       const mode = ev.target.value;
       const res = await sendMessage({ type: 'qm-mode', mode });
-      if (res && res.ok) lastSettings.quickPanelMode = mode;
+      if (!res || !res.ok) {
+        // Gagal simpan: kembalikan pilihan supaya UI tidak menampilkan nilai palsu.
+        $('qmp-mode').value = lastSettings.quickPanelMode || 'corner';
+        showToast('Gagal menyimpan pengaturan — coba lagi');
+        return;
+      }
+      lastSettings.quickPanelMode = mode;
       await applyFabMode(mode);
-      showToast(mode === 'corner' ? 'Panel cepat: diam di pojok kanan bawah' : 'Panel cepat: bebas digeser');
+      showToast(mode === 'corner' ? 'Tersimpan: panel cepat diam di pojok' : 'Tersimpan: panel cepat bebas digeser');
     });
     $('qmp-close').addEventListener('click', () => togglePanel(false));
     $('qmp-save').addEventListener('click', saveFromPanel);

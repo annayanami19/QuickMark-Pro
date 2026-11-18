@@ -8,7 +8,10 @@ import { runDedup, exportJSON, bookmarksToNetscape, parseNetscapeHtml, parseQuic
 import { escapeHtml, toast, confirm2, onBroadcast, debounce, faviconSrc, letterIcon, uid, askPassword } from '../lib/ui.js';
 import { hasPassword, setPassword, verifyPassword, removePassword, isUnlocked, unlock, lockNow, hiddenLockedCount, encryptExport, decryptExport, isEncryptedFile } from '../lib/lock.js';
 import { getSettings, saveSettings, applyTheme, DEFAULT_SETTINGS } from '../lib/settings.js';
-import { isConfigured, getToken, disconnect as driveDisconnect, uploadBackup, listCloudBackups, deleteCloudBackup, deleteAllCloudBackups, restoreCloudBackup } from '../lib/drive.js';
+// Google Drive NONAKTIF: modul lib/drive.js tidak di-import sama sekali (tidak dimuat
+// browser). Untuk menghidupkan kembali: set DRIVE_ENABLED = true di sini DAN di
+// lib/drive.js, lalu reload extension.
+const DRIVE_ENABLED = false;
 
 const $ = (sel) => document.querySelector(sel);
 const state = {
@@ -16,6 +19,22 @@ const state = {
   profileId: '*', categoryId: null, flag: null, q: '',
   selected: new Set(), catOpen: new Set(), bmTreeOpen: new Set(), settings: null, catsById: new Map(), activeView: 'bookmarks'
 };
+
+// Simpan setting + toast hasil. Semua kontrol pengaturan di manager lewat sini supaya
+// user tahu perubahannya benar-benar tersimpan — atau gagal beserta alasannya.
+// Return setting baru, atau null bila gagal (pemanggil tetap boleh lanjut render).
+async function saveSetting(patch, label) {
+  try {
+    const st = await saveSettings(patch);
+    state.settings = st;
+    toast($('#toast-host'), 'Tersimpan: ' + label);
+    return st;
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'tidak diketahui';
+    toast($('#toast-host'), 'Gagal menyimpan ' + label + ' — ' + msg);
+    return null;
+  }
+}
 
 init();
 async function init() {
@@ -161,7 +180,7 @@ function renderBookmarks() {
   const selView = $('#bm-viewmode');
   selView.value = (state.settings.bookmarkView === 'tree') ? 'tree' : 'table';
   selView.onchange = async (ev) => {
-    state.settings = await saveSettings({ bookmarkView: ev.target.value });
+    await saveSetting({ bookmarkView: ev.target.value }, 'Tampilan bookmark');
     renderBookmarks();
   };
   if (state.settings.bookmarkView === 'tree') {
@@ -953,30 +972,34 @@ function renderData() {
     '<div id="bk-list"></div>' +
     '<div class="mg-imp-sub">Data terkunci</div>' +
     '<div class="mg-row"><button id="bk-private" class="qm-btn-ghost">Export terenkripsi</button><span id="bk-priv-status" class="mg-muted"></span></div>' +
-    '<div class="mg-row mg-muted">Profil terkunci TIDAK ikut backup lokal/Drive/export biasa — satu-satunya cadangannya file terenkripsi ini (terproteksi password, aman disimpan). Lupa password = isinya tidak bisa dibuka.</div>' +
-    '<div class="mg-row mg-muted" style="margin-top:8px">Penamaan, mode, dan jumlah backup mengikuti pengaturan di card Google Drive di bawah — saling sinkron.</div></div>' +
-    '<div class="mg-card glass"><h2>Google Drive</h2>' +
-    '<div class="mg-row"><label>Mode penyimpanan</label><select id="dr-mode">' +
+    '<div class="mg-row mg-muted">Profil terkunci TIDAK ikut backup lokal/export biasa — satu-satunya cadangannya file terenkripsi ini (terproteksi password, aman disimpan). Lupa password = isinya tidak bisa dibuka.</div>' +
+    '<div class="mg-row mg-muted" style="margin-top:8px">Penamaan, mode, dan jumlah backup diatur di card <b>Pengaturan backup</b> di bawah.</div></div>' +
+    '<div class="mg-card glass"><h2>Pengaturan backup</h2>' +
+    '<div class="mg-sub">Satu sumber pengaturan untuk backup lokal dan cloud (bila aktif).</div>' +
+    '<div class="mg-row"><label>Mode penyimpanan</label><select id="bk-mode">' +
     '<option value="multi"' + (s.backupMode !== 'single' ? ' selected' : '') + '>File baru (ber-timestamp, ada riwayat)</option>' +
-    '<option value="single"' + (s.backupMode === 'single' ? ' selected' : '') + '>File tunggal (1 file, diganti tiap backup)</option></select>' +
-    '<span class="mg-muted">Berlaku untuk backup lokal &amp; Drive</span></div>' +
-    '<div class="mg-row"><label>Nama file</label><input id="dr-name" type="text" value="' + escapeHtml(sanitizeBackupName(s.backupName)) + '">' +
-    '<span class="mg-muted">Contoh: <span class="mono" id="dr-prev"></span></span></div>' +
-    '<div class="mg-row"><label>Sisakan file</label><input id="dr-keep" type="number" min="1" max="50" value="' + (s.backupKeep || 5) + '" ' + (s.backupMode === 'single' ? 'disabled' : '') + '>' +
-    '<span class="mg-muted">Backup terbaru yang dipertahankan — hanya berlaku mode file baru</span></div>' +
-    '<div class="mg-imp-sub">Koneksi</div>' +
-    '<div class="mg-row"><label>Akun</label>' +
-    '<button id="dr-connect" class="qm-btn-primary">Hubungkan Google Drive</button>' +
-    '<button id="dr-disconnect" class="qm-btn-ghost" hidden>Putuskan</button>' +
-    '<button id="dr-upload" class="qm-btn-ghost">Backup ke Drive</button>' +
-    '<span id="dr-status" class="mg-muted"></span></div>' +
-    '<div class="mg-row"><label>Auto harian</label>' +
-    '<input type="checkbox" id="dr-auto" ' + (s.backupToDrive ? 'checked' : '') + '> ' +
-    '<span class="mg-muted">Alarm backup harian ikut mengirim ke Drive (butuh koneksi aktif)</span></div>' +
-    '<div class="mg-imp-sub">File di Drive</div>' +
-    '<div class="mg-row"><label>Daftar</label><button id="dr-refresh" class="qm-btn-ghost">Muat daftar</button>' +
-    '<button id="dr-clear" class="qm-btn-danger">Hapus semua</button><span class="mg-muted">Restore menimpa semua data — konfirmasi dulu</span></div>' +
-    '<div id="dr-list"></div></div>';
+    '<option value="single"' + (s.backupMode === 'single' ? ' selected' : '') + '>File tunggal (1 file, diganti tiap backup)</option></select></div>' +
+    '<div class="mg-row"><label>Nama file</label><input id="bk-name" type="text" value="' + escapeHtml(sanitizeBackupName(s.backupName)) + '">' +
+    '<span class="mg-muted">Contoh: <span class="mono" id="bk-prev"></span></span></div>' +
+    '<div class="mg-row"><label>Sisakan file</label><input id="bk-keep" type="number" min="1" max="50" value="' + (s.backupKeep || 5) + '" ' + (s.backupMode === 'single' ? 'disabled' : '') + '>' +
+    '<span class="mg-muted">Backup terbaru yang dipertahankan — hanya berlaku mode file baru</span></div></div>' +
+    // Card Google Drive hanya dirender bila fitur diaktifkan. Saat DRIVE_ENABLED=false
+    // tidak ada satu pun elemen Drive di DOM (bukan sekadar disabled).
+    (DRIVE_ENABLED ?
+      '<div class="mg-card glass"><h2>Google Drive</h2>' +
+      '<div class="mg-imp-sub">Koneksi</div>' +
+      '<div class="mg-row"><label>Akun</label>' +
+      '<button id="dr-connect" class="qm-btn-primary">Hubungkan Google Drive</button>' +
+      '<button id="dr-disconnect" class="qm-btn-ghost" hidden>Putuskan</button>' +
+      '<button id="dr-upload" class="qm-btn-ghost">Backup ke Drive</button>' +
+      '<span id="dr-status" class="mg-muted"></span></div>' +
+      '<div class="mg-row"><label>Auto harian</label>' +
+      '<input type="checkbox" id="dr-auto"' + (s.backupToDrive ? ' checked' : '') + '> ' +
+      '<span class="mg-muted">Alarm backup harian ikut mengirim ke Drive (butuh koneksi aktif)</span></div>' +
+      '<div class="mg-imp-sub">File di Drive</div>' +
+      '<div class="mg-row"><label>Daftar</label><button id="dr-refresh" class="qm-btn-ghost">Muat daftar</button>' +
+      '<button id="dr-clear" class="qm-btn-danger">Hapus semua</button><span class="mg-muted">Restore menimpa semua data — konfirmasi dulu</span></div>' +
+      '<div id="dr-list"></div></div>' : '');
   fillImportSelects();
   bindDataEvents(v);
   refreshBackupList();
@@ -996,7 +1019,7 @@ function download(name, content, mime) {
   URL.revokeObjectURL(a.href);
 }
 
-function bindDataEvents(v) {
+async function bindDataEvents(v) { // async: blok Drive memuat modulnya via dynamic import
   $('#imp-native').onclick = async () => {
     $('#imp-status').textContent = 'Mengimport…';
     const r = await importNative($('#imp-profile').value, $('#imp-mode').value);
@@ -1101,26 +1124,31 @@ function bindDataEvents(v) {
       $('#bk-priv-status').textContent = 'Gagal: ' + e.message;
     }
   };
-  // Pengaturan backup (lokal & Drive saling sinkron — satu sumber setting backupMode/backupName/backupKeep).
-  const drivePrev = () => { $('#dr-prev').textContent = backupFileName($('#dr-name').value, Date.now()); };
-  drivePrev();
-  $('#dr-name').addEventListener('input', drivePrev);
-  $('#dr-name').onchange = async (ev) => {
+  // Pengaturan backup — satu sumber setting backupMode/backupName/backupKeep (lokal & cloud).
+  const bkPrev = () => { $('#bk-prev').textContent = backupFileName($('#bk-name').value, Date.now()); };
+  bkPrev();
+  $('#bk-name').addEventListener('input', bkPrev);
+  $('#bk-name').onchange = async (ev) => {
     const name = sanitizeBackupName(ev.target.value);
     ev.target.value = name;
-    drivePrev();
-    state.settings = await saveSettings({ backupName: name });
+    bkPrev();
+    await saveSetting({ backupName: name }, 'Nama file backup');
   };
-  $('#dr-mode').onchange = async (ev) => {
-    state.settings = await saveSettings({ backupMode: ev.target.value });
-    $('#dr-keep').disabled = ev.target.value === 'single';
+  $('#bk-mode').onchange = async (ev) => {
+    await saveSetting({ backupMode: ev.target.value }, 'Mode penyimpanan backup');
+    $('#bk-keep').disabled = ev.target.value === 'single';
   };
-  $('#dr-keep').onchange = async (ev) => {
+  $('#bk-keep').onchange = async (ev) => {
     const keep = Math.max(1, Math.min(50, parseInt(ev.target.value, 10) || 5));
     ev.target.value = keep;
-    state.settings = await saveSettings({ backupKeep: keep });
+    await saveSetting({ backupKeep: keep }, 'Jumlah backup disimpan');
   };
-  // ---------- Koneksi & operasi Google Drive ----------
+  // ---------- Google Drive: NONAKTIF ----------
+  // Card Drive tidak dirender sama sekali dan seluruh handler di bawah tidak dipasang.
+  // Modul lib/drive.js hanya dimuat via dynamic import bila fitur dihidupkan kembali.
+  if (DRIVE_ENABLED) {
+  const { isConfigured, getToken, disconnect: driveDisconnect, uploadBackup, listCloudBackups,
+    deleteCloudBackup, deleteAllCloudBackups, restoreCloudBackup } = await import('../lib/drive.js');
   const setConnUi = (connected) => {
     $('#dr-connect').hidden = connected;
     $('#dr-disconnect').hidden = !connected;
@@ -1159,7 +1187,7 @@ function bindDataEvents(v) {
     btn.disabled = false;
   };
   $('#dr-auto').onchange = async (ev) => {
-    state.settings = await saveSettings({ backupToDrive: ev.target.checked });
+    await saveSetting({ backupToDrive: ev.target.checked }, 'Auto backup ke Drive');
   };
   $('#dr-refresh').onclick = () => refreshDriveList();
   $('#dr-clear').onclick = (ev) => confirm2(ev.target, 'Hapus SEMUA file di Drive? Klik lagi', async () => {
@@ -1217,6 +1245,7 @@ function bindDataEvents(v) {
       $('#dr-status').textContent = 'Belum terhubung — klik Hubungkan Google Drive';
     }
   })();
+  }
 }
 
 async function refreshBackupList() {
@@ -1293,7 +1322,7 @@ async function renderSettings() {
     '<button id="st-pw-remove" class="qm-btn-danger">Hapus password</button>' +
     '<span class="mg-muted">Hapus password juga melepas semua status terkunci</span></div>' +
     '<div class="mg-row mg-muted">Peringatan: lupa password = profil terkunci tidak bisa dibuka (tanpa reset). ' +
-    'Data terkunci TIDAK ikut backup lokal/Drive/export biasa — cadangannya hanya "Export terenkripsi" di Data &amp; Backup.</div></div>' +
+    'Data terkunci TIDAK ikut backup lokal/export biasa — cadangannya hanya "Export terenkripsi" di Data &amp; Backup.</div></div>' +
     '<div class="mg-card glass"><h2>Dataset kategori bawaan</h2><div class="mg-dataset-grid">' + catRows + '</div></div>' +
     '<div class="mg-card glass"><h2>Shortcut keyboard</h2>' +
     '<div class="mg-row mg-muted">Ctrl+Shift+K — buka popup · Ctrl+Shift+S — quick-save · omnibox: ketik <b>qm &lt;query&gt;</b> di address bar.<br>' +
@@ -1340,22 +1369,22 @@ async function fillSettingsSelects(s) {
 
 function bindSettingsEvents(v) {
   $('#st-theme').onchange = async (ev) => {
-    state.settings = await saveSettings({ theme: ev.target.value });
-    applyTheme(state.settings.theme);
+    const st = await saveSetting({ theme: ev.target.value }, 'Tema');
+    if (st) applyTheme(st.theme);
   };
-  $('#st-defprofile').onchange = (ev) => saveSettings({ defaultProfileId: ev.target.value || null });
-  $('#st-bmview').onchange = (ev) => saveSettings({ bookmarkView: ev.target.value }).then((st) => { state.settings = st; });
-  $('#st-favicon').onchange = (ev) => saveSettings({ faviconMode: ev.target.value }).then((s) => { state.settings = s; renderAll(); });
+  $('#st-defprofile').onchange = (ev) => saveSetting({ defaultProfileId: ev.target.value || null }, 'Profil default');
+  $('#st-bmview').onchange = (ev) => saveSetting({ bookmarkView: ev.target.value }, 'Tampilan bookmark');
+  $('#st-favicon').onchange = async (ev) => { await saveSetting({ faviconMode: ev.target.value }, 'Mode favicon'); renderAll(); };
   $('#st-fabmode').onchange = async (ev) => {
-    state.settings = await saveSettings({ quickPanelMode: ev.target.value });
+    await saveSetting({ quickPanelMode: ev.target.value }, 'Mode panel cepat');
     initQuickPanelPosFromSettings();
   };
-  $('#st-qpsites').onchange = (ev) => saveSettings({ quickPanelSites: ev.target.checked });
-  $('#st-mirror').onchange = (ev) => saveSettings({ mirrorNative: ev.target.checked });
+  $('#st-qpsites').onchange = (ev) => saveSetting({ quickPanelSites: ev.target.checked }, 'Panel cepat di halaman web');
+  $('#st-mirror').onchange = (ev) => saveSetting({ mirrorNative: ev.target.checked }, 'Mirror ke bookmark native');
   v.querySelectorAll('.st-dataset').forEach((cb) => {
     cb.onchange = async () => {
       const de = { ...state.settings.datasetEnabled, [cb.dataset.id]: cb.checked };
-      state.settings = await saveSettings({ datasetEnabled: de });
+      await saveSetting({ datasetEnabled: de }, 'Dataset kategori bawaan');
       await refreshDerived(); // grup dropdown & chips kategori langsung ikut
     };
   });
@@ -1374,7 +1403,7 @@ function bindSettingsEvents(v) {
   };
   $('#st-lockmin').onchange = async (ev) => {
     const v = ev.target.value;
-    state.settings = await saveSettings({ lockAutoMin: /^\d+$/.test(v) ? Number(v) : v });
+    await saveSetting({ lockAutoMin: /^\d+$/.test(v) ? Number(v) : v }, 'Durasi tampil profil terkunci');
   };
   $('#st-locknow').onclick = async () => {
     await lockNow();
@@ -1548,7 +1577,7 @@ function renderFabPanel() {
   });
   $('#qp-mode').onchange = async (ev) => {
     const mode = ev.target.value;
-    state.settings = await saveSettings({ quickPanelMode: mode });
+    await saveSetting({ quickPanelMode: mode }, 'Mode panel cepat');
     const fab = $('#fab');
     if (mode === 'corner') {
       fab.style.left = ''; fab.style.top = '';
@@ -1557,7 +1586,6 @@ function renderFabPanel() {
     } else {
       await applySavedFabPos(fab);
     }
-    toast($('#toast-host'), mode === 'corner' ? 'Panel cepat: diam di pojok kanan bawah' : 'Panel cepat: bebas digeser');
   };
   $('#qp-save').onclick = async () => {
     const rawUrl = $('#qp-url').value.trim();
