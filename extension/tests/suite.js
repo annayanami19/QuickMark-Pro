@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { normalizeUrl, hostOf, findDuplicateGroups, pickSurvivor } from '../lib/dedup.js';
 import { buildIndex, fuzzyScore, search as fuzzySearch, highlightRanges } from '../lib/search.js';
 import { classify, confidenceOf, learningMap, categoryChoices, categoryPickerChoices } from '../lib/categorizer.js';
-import { sanitizeBackupName, backupFileName } from '../lib/io.js';
+import { sanitizeBackupName, backupFileName, cloudKeep, splitLockedData } from '../lib/io.js';
+import { encryptExport, decryptExport, isEncryptedFile } from '../lib/lock.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -171,10 +172,75 @@ test('backupFileName: ekstensi kustom (.html untuk export Netscape)', () => {
   assert.equal(name, '20261117-090503-quickmark-backup.html');
 });
 
+test('cloudKeep: rotasi satu sumber — single=1, multi=keep (default 5, clamp 1-50)', () => {
+  assert.equal(cloudKeep({ backupMode: 'single' }), 1);
+  assert.equal(cloudKeep({ backupMode: 'multi', backupKeep: 5 }), 5);
+  assert.equal(cloudKeep({ backupMode: 'multi' }), 5);
+  assert.equal(cloudKeep({ backupMode: 'multi', backupKeep: 0 }), 5); // 0 dianggap kosong -> default 5 (konsisten UI)
+  assert.equal(cloudKeep({ backupMode: 'multi', backupKeep: 99 }), 50);
+});
+
 test('sanitizeBackupName: buang karakter ilegal, spasi jadi dash, kosong -> default', () => {
   assert.equal(sanitizeBackupName('kerja/2026'), 'kerja2026');
   assert.equal(sanitizeBackupName('  nama  aneh '), 'nama-aneh');
   assert.equal(sanitizeBackupName('///'), 'quickmark-backup');
+});
+
+// ---------- profil terkunci ----------
+test('splitLockedData: profil terkunci & isinya terpisah; shared ikut terlihat', () => {
+  const profiles = [
+    { id: 'a', name: 'A' }, { id: 'b', name: 'B', locked: true }
+  ];
+  const categories = [
+    { id: 'c1', profileId: 'a' }, { id: 'c2', profileId: 'b' },
+    { id: 'cs', profileId: 'b', shared: true }
+  ];
+  const bookmarks = [
+    { id: 'bm1', profileId: 'a' }, { id: 'bm2', profileId: 'b' }
+  ];
+  const learning = [
+    { profileId: 'a', domain: 'x.com' }, { profileId: 'b', domain: 'y.com' }
+  ];
+  const r = splitLockedData(profiles, categories, bookmarks, learning);
+  assert.equal(r.lockedIds.size, 1);
+  assert.deepEqual(r.visible.profiles.map((p) => p.id), ['a']);
+  assert.deepEqual(r.visible.categories.map((c) => c.id), ['c1', 'cs']); // shared tetap terlihat
+  assert.deepEqual(r.visible.bookmarks.map((b) => b.id), ['bm1']);
+  assert.deepEqual(r.visible.learning.map((l) => l.domain), ['x.com']);
+  assert.deepEqual(r.locked.profiles.map((p) => p.id), ['b']);
+  assert.deepEqual(r.locked.categories.map((c) => c.id), ['c2']); // shared TIDAK ikut jalur terkunci
+  assert.deepEqual(r.locked.bookmarks.map((b) => b.id), ['bm2']);
+  assert.deepEqual(r.locked.learning.map((l) => l.domain), ['y.com']);
+});
+
+test('splitLockedData: tanpa profil terkunci semua terlihat', () => {
+  const r = splitLockedData([{ id: 'a' }], [{ id: 'c1', profileId: 'a' }], [{ id: 'bm1', profileId: 'a' }], []);
+  assert.equal(r.lockedIds.size, 0);
+  assert.equal(r.visible.profiles.length, 1);
+  assert.equal(r.locked.profiles.length, 0);
+});
+
+test('backupFileName: sufiks -private untuk export terenkripsi', () => {
+  const name = backupFileName('quickmark-backup-private', new Date(2026, 10, 17, 9, 5, 3));
+  assert.equal(name, '20261117-090503-quickmark-backup-private.json');
+});
+
+test('encryptExport/decryptExport: roundtrip AES-GCM + password salah ditolak', async () => {
+  const data = { profiles: [{ id: 'b', name: 'Rahasia', locked: true }], bookmarks: [{ id: 'bm1', profileId: 'b' }] };
+  const file = await encryptExport('rahasia123', data);
+  assert.equal(isEncryptedFile(file), true);
+  assert.equal(isEncryptedFile({ app: 'quickmark-pro' }), false);
+  assert.equal(file.qmEnc, 1);
+  // Ciphertext tidak memuat plaintext.
+  assert.equal(JSON.stringify(file).includes('Rahasia'), false);
+  const back = await decryptExport('rahasia123', file);
+  assert.deepEqual(back.profiles[0].id, 'b');
+  assert.equal(back.bookmarks.length, 1);
+  await assert.rejects(() => decryptExport('salah999', file), /Password salah/);
+});
+
+test('encryptExport: password pendek ditolak', async () => {
+  await assert.rejects(() => encryptExport('abc', { a: 1 }), /minimal 4/);
 });
 
 export { tests };

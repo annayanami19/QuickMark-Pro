@@ -40,6 +40,11 @@
 }
 #qmp-panel * { all: unset; display: block; }
 
+/* all: initial di atas mengalahkan attribute [hidden] bawaan browser
+   (author rule menang atas UA rule) — tanpa rule ini panel & toast
+   tetap tampil meski .hidden sudah di-set dari JS (klik X mati). */
+#qmp-panel[hidden], #qmp-toast[hidden] { display: none !important; }
+
 #qmp-panel .qmp-head {
   display: flex; justify-content: space-between; align-items: center;
   font-size: 13px; font-weight: 700; margin-bottom: 8px;

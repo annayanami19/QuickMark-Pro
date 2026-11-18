@@ -1,12 +1,14 @@
 // manager.js — kontrol penuh: bookmark (tabel+bulk), kategori, profil, statistik,
 // data & backup, pengaturan (PRD §3.6–§3.9).
 import * as db from '../lib/db.js';
-import { listProfiles, createProfile, updateProfile, deleteProfile, resolveActiveProfile } from '../lib/profiles.js';
+import { listProfiles, listVisibleProfiles, assertCanLock, filterVisibleBookmarks, createProfile, updateProfile, deleteProfile, resolveActiveProfile } from '../lib/profiles.js';
 import { buildIndex, search as fuzzySearch } from '../lib/search.js';
 import { normalizeUrl } from '../lib/dedup.js';
-import { runDedup, exportJSON, bookmarksToNetscape, parseNetscapeHtml, parseQuickmarkJson, importItems, importNative, createBackup, listBackups, restoreBackup, sanitizeBackupName, backupFileName } from '../lib/io.js';
-import { escapeHtml, toast, confirm2, onBroadcast, debounce, faviconSrc, letterIcon, uid } from '../lib/ui.js';
+import { runDedup, exportJSON, bookmarksToNetscape, parseNetscapeHtml, parseQuickmarkJson, importItems, importNative, createBackup, listBackups, restoreBackup, deleteBackup, clearBackups, exportLockedData, applyLockedImport, sanitizeBackupName, backupFileName } from '../lib/io.js';
+import { escapeHtml, toast, confirm2, onBroadcast, debounce, faviconSrc, letterIcon, uid, askPassword } from '../lib/ui.js';
+import { hasPassword, setPassword, verifyPassword, removePassword, isUnlocked, unlock, lockNow, hiddenLockedCount, encryptExport, decryptExport, isEncryptedFile } from '../lib/lock.js';
 import { getSettings, saveSettings, applyTheme, DEFAULT_SETTINGS } from '../lib/settings.js';
+import { isConfigured, getToken, disconnect as driveDisconnect, uploadBackup, listCloudBackups, deleteCloudBackup, deleteAllCloudBackups, restoreCloudBackup } from '../lib/drive.js';
 
 const $ = (sel) => document.querySelector(sel);
 const state = {
@@ -48,11 +50,13 @@ function restoreLastView() {
 }
 
 async function reload() {
-  state.profiles = await listProfiles();
-  state.categories = await db.listAllCategories();
+  // Profil terkunci (belum di-unlock) tidak masuk state — semua view otomatis bersih.
+  state.profiles = await listVisibleProfiles();
+  const visIds = new Set(state.profiles.map((p) => p.id));
+  state.categories = (await db.listAllCategories()).filter((c) => c.shared || visIds.has(c.profileId));
   const { builtin } = categoryChoices(state.categories, state.settings.datasetEnabled);
   state.catsById = new Map(builtin.map((c) => [c.id, c]).concat(state.categories.map((c) => [c.id, c])));
-  state.bookmarks = await db.getAll('bookmarks');
+  state.bookmarks = await filterVisibleBookmarks(await db.getAll('bookmarks'));
   state.index = buildIndex(state.bookmarks);
 }
 
@@ -756,25 +760,38 @@ function openCatModal(c) {
 }
 
 // ---------- View: Profil ----------
-function renderProfiles() {
+async function renderProfiles() {
   const v = $('#view-profiles');
+  const unlocked = await isUnlocked();
   const rows = state.profiles.map((p) => {
     const n = state.bookmarks.filter((b) => b.profileId === p.id).length;
     return '<div class="mg-list-row" data-id="' + p.id + '">' +
       '<span class="mg-cat-dot" style="background:' + p.color + '"></span>' +
       '<div class="grow"><b>' + escapeHtml(p.name) + '</b>' +
       (p.isDefault ? ' <span class="mg-muted">default</span>' : '') +
+      (p.locked ? ' <span class="mg-muted">terkunci</span>' : '') +
       ' <span class="mg-muted">' + n + ' bookmark</span></div>' +
+      (p.locked
+        ? '<button class="qm-btn-ghost prof-unlockflag" title="Lepas status terkunci (sesi sedang terbuka)">Lepas kunci</button>'
+        : '<button class="qm-btn-ghost prof-lock">Kunci</button>') +
       '<button class="qm-btn-ghost prof-rename">Rename</button>' +
       '<button class="qm-btn-danger prof-del">Hapus</button></div>';
   }).join('');
+  // Profil terkunci yang sedang tersembunyi: baris tersamarkan (nama & jumlah tidak dibocorkan).
+  const hidden = unlocked ? 0 : await hiddenLockedCount();
+  const hiddenRows = hidden
+    ? Array.from({ length: hidden }, () =>
+      '<div class="mg-list-row"><span class="mg-cat-dot" style="background:#475569"></span>' +
+      '<div class="grow"><b>Profil terkunci</b> <span class="mg-muted">nama &amp; jumlah disembunyikan</span></div>' +
+      '<button class="qm-btn-ghost prof-unlock">Buka kunci</button></div>').join('')
+    : '';
   v.innerHTML = '<h1>Profil</h1>' +
-    '<div class="mg-sub">Konteks terpisah: bookmark, kategori non-shared, learning, dan statistik per profil. Profil aktif per jendela.</div>' +
+    '<div class="mg-sub">Konteks terpisah: bookmark, kategori non-shared, learning, dan statistik per profil. Profil aktif per jendela. Profil terkunci disembunyikan dari semua permukaan sampai dibuka dengan password (atur di Pengaturan > Privasi).</div>' +
     '<div class="mg-card glass"><h2>Tambah profil</h2>' +
     '<div class="mg-row"><label>Nama</label><input id="prof-name" type="text" placeholder="mis. Kantor"></div>' +
     '<div class="mg-row"><label>Warna aksen</label><input id="prof-color" type="color" value="#60a5fa" style="width:50px;height:32px;padding:2px">' +
     '<button id="prof-add" class="qm-btn-primary">Tambah</button></div></div>' +
-    '<div class="mg-card glass">' + rows + '</div>' +
+    '<div class="mg-card glass">' + rows + hiddenRows + '</div>' +
     '<div class="mg-muted">Shortcut: Ctrl+Shift+K buka popup · Ctrl+Shift+S quick-save. Ubah di chrome://extensions/shortcuts.</div>';
   $('#prof-add').onclick = async () => {
     const name = $('#prof-name').value.trim();
@@ -785,6 +802,46 @@ function renderProfiles() {
 }
 
 document.addEventListener('click', async (ev) => {
+  const lk = ev.target.closest('.prof-lock');
+  if (lk) {
+    if (!(await hasPassword())) { toast($('#toast-host'), 'Atur password dulu di Pengaturan > Privasi'); return; }
+    const id = lk.closest('[data-id]').dataset.id;
+    try {
+      await assertCanLock(id);
+      const p = state.profiles.find((x) => x.id === id);
+      await updateProfile({ ...p, locked: true });
+      await afterWrite('Profil dikunci — tersembunyi sampai dibuka dengan password');
+    } catch (e) {
+      toast($('#toast-host'), e.message);
+    }
+    return;
+  }
+  const uf = ev.target.closest('.prof-unlockflag');
+  if (uf) {
+    // Sesi sedang terbuka (unlocked) — lepas status terkunci tanpa password lagi.
+    const id = uf.closest('[data-id]').dataset.id;
+    const p = state.profiles.find((x) => x.id === id);
+    if (p) {
+      await updateProfile({ ...p, locked: false });
+      await afterWrite('Status terkunci dilepas');
+    }
+    return;
+  }
+  const un = ev.target.closest('.prof-unlock');
+  if (un) {
+    const pw = await askPassword({ title: 'Buka profil terkunci', confirmLabel: 'Buka' });
+    if (pw == null) return;
+    try {
+      if (!(await verifyPassword(pw))) { toast($('#toast-host'), 'Password salah'); return; }
+      await unlock(state.settings.lockAutoMin);
+      // BroadcastChannel TIDAK mengirim ke context pengirim — reload manager sendiri
+      // supaya profil terkunci langsung tampil tanpa refresh halaman.
+      await refreshDerived();
+    } catch (e) {
+      toast($('#toast-host'), e.message);
+    }
+    return;
+  }
   const rn = ev.target.closest('.prof-rename');
   if (rn) {
     const id = rn.closest('[data-id]').dataset.id;
@@ -891,8 +948,12 @@ function renderData() {
     '<div class="mg-row"><button id="dedup-scan" class="qm-btn-ghost">Scan duplikat</button>' +
     '<button id="dedup-run" class="qm-btn-danger">Auto-dedup</button><span id="dedup-status" class="mg-muted"></span></div></div>' +
     '<div class="mg-card glass"><h2>Backup lokal</h2>' +
-    '<div class="mg-row"><button id="bk-now" class="qm-btn-primary">Backup sekarang</button><span id="bk-status" class="mg-muted"></span></div>' +
+    '<div class="mg-row"><button id="bk-now" class="qm-btn-primary">Backup sekarang</button>' +
+    '<button id="bk-clear" class="qm-btn-danger">Hapus semua</button><span id="bk-status" class="mg-muted"></span></div>' +
     '<div id="bk-list"></div>' +
+    '<div class="mg-imp-sub">Data terkunci</div>' +
+    '<div class="mg-row"><button id="bk-private" class="qm-btn-ghost">Export terenkripsi</button><span id="bk-priv-status" class="mg-muted"></span></div>' +
+    '<div class="mg-row mg-muted">Profil terkunci TIDAK ikut backup lokal/Drive/export biasa — satu-satunya cadangannya file terenkripsi ini (terproteksi password, aman disimpan). Lupa password = isinya tidak bisa dibuka.</div>' +
     '<div class="mg-row mg-muted" style="margin-top:8px">Penamaan, mode, dan jumlah backup mengikuti pengaturan di card Google Drive di bawah — saling sinkron.</div></div>' +
     '<div class="mg-card glass"><h2>Google Drive</h2>' +
     '<div class="mg-row"><label>Mode penyimpanan</label><select id="dr-mode">' +
@@ -903,7 +964,19 @@ function renderData() {
     '<span class="mg-muted">Contoh: <span class="mono" id="dr-prev"></span></span></div>' +
     '<div class="mg-row"><label>Sisakan file</label><input id="dr-keep" type="number" min="1" max="50" value="' + (s.backupKeep || 5) + '" ' + (s.backupMode === 'single' ? 'disabled' : '') + '>' +
     '<span class="mg-muted">Backup terbaru yang dipertahankan — hanya berlaku mode file baru</span></div>' +
-    '<div class="mg-row mg-muted">Koneksi &amp; pengiriman ke Google Drive menyusul — pengaturan ini sudah aktif untuk backup lokal sekarang.</div></div>';
+    '<div class="mg-imp-sub">Koneksi</div>' +
+    '<div class="mg-row"><label>Akun</label>' +
+    '<button id="dr-connect" class="qm-btn-primary">Hubungkan Google Drive</button>' +
+    '<button id="dr-disconnect" class="qm-btn-ghost" hidden>Putuskan</button>' +
+    '<button id="dr-upload" class="qm-btn-ghost">Backup ke Drive</button>' +
+    '<span id="dr-status" class="mg-muted"></span></div>' +
+    '<div class="mg-row"><label>Auto harian</label>' +
+    '<input type="checkbox" id="dr-auto" ' + (s.backupToDrive ? 'checked' : '') + '> ' +
+    '<span class="mg-muted">Alarm backup harian ikut mengirim ke Drive (butuh koneksi aktif)</span></div>' +
+    '<div class="mg-imp-sub">File di Drive</div>' +
+    '<div class="mg-row"><label>Daftar</label><button id="dr-refresh" class="qm-btn-ghost">Muat daftar</button>' +
+    '<button id="dr-clear" class="qm-btn-danger">Hapus semua</button><span class="mg-muted">Restore menimpa semua data — konfirmasi dulu</span></div>' +
+    '<div id="dr-list"></div></div>';
   fillImportSelects();
   bindDataEvents(v);
   refreshBackupList();
@@ -936,7 +1009,31 @@ function bindDataEvents(v) {
     const file = ev.target.files[0];
     if (!file) return;
     const text = await file.text();
-    confirm2($('#imp-qmpick'), 'Ganti SEMUA data? Klik lagi', async () => {
+    // File terenkripsi (jalur data terkunci): password, dekrip, GANTI data terkunci saja.
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) {}
+    if (isEncryptedFile(parsed)) {
+      const pw = await askPassword({ title: 'Password file terenkripsi', confirmLabel: 'Buka' });
+      if (pw != null) {
+        try {
+          const data = await decryptExport(pw, parsed);
+          confirm2($('#imp-qmpick'), 'Ganti data terkunci? Klik lagi', async () => {
+            try {
+              const r = await applyLockedImport(data);
+              $('#imp-status').textContent = 'Data terkunci dipulihkan: ' + r.profiles + ' profil, ' + r.bookmarks + ' bookmark';
+              await afterWrite(null);
+            } catch (e) {
+              $('#imp-status').textContent = 'Gagal: ' + e.message;
+            }
+          });
+        } catch (e) {
+          $('#imp-status').textContent = 'Gagal: ' + e.message;
+        }
+      }
+      ev.target.value = '';
+      return;
+    }
+    confirm2($('#imp-qmpick'), 'Ganti SEMUA data? Data terkunci ikut terhapus! Klik lagi', async () => {
       try {
         const data = parseQuickmarkJson(text);
         await applyImportData(data);
@@ -968,7 +1065,7 @@ function bindDataEvents(v) {
     download(backupFileName(state.settings.backupName), await exportJSON(), 'application/json');
   };
   $('#exp-html').onclick = async () => {
-    const all = await db.getAll('bookmarks');
+    const all = await filterVisibleBookmarks(await db.getAll('bookmarks'));
     download(backupFileName(state.settings.backupName, Date.now(), '.html'), bookmarksToNetscape(state.profiles, all, state.catsById), 'text/html');
   };
   $('#dedup-scan').onclick = async () => {
@@ -984,6 +1081,25 @@ function bindDataEvents(v) {
     const key = await createBackup();
     $('#bk-status').textContent = 'Backup dibuat: ' + key.split(':')[1];
     refreshBackupList();
+  };
+  $('#bk-clear').onclick = (ev) => confirm2(ev.target, 'Hapus SEMUA backup lokal? Klik lagi', async () => {
+    const n = await clearBackups();
+    $('#bk-status').textContent = n + ' backup lokal dihapus';
+    refreshBackupList();
+  });
+  $('#bk-private').onclick = async () => {
+    let data;
+    try { data = await exportLockedData(); } catch (e) { $('#bk-priv-status').textContent = 'Gagal: ' + e.message; return; }
+    if (!data) { $('#bk-priv-status').textContent = 'Tidak ada profil terkunci.'; return; }
+    const pw = await askPassword({ title: 'Password untuk mengenkripsi file', confirmLabel: 'Enkripsi' });
+    if (pw == null) return;
+    try {
+      const file = await encryptExport(pw, data);
+      download(backupFileName(state.settings.backupName + '-private'), JSON.stringify(file, null, 2), 'application/json');
+      $('#bk-priv-status').textContent = 'File terenkripsi diunduh (' + data.profiles.length + ' profil terkunci)';
+    } catch (e) {
+      $('#bk-priv-status').textContent = 'Gagal: ' + e.message;
+    }
   };
   // Pengaturan backup (lokal & Drive saling sinkron — satu sumber setting backupMode/backupName/backupKeep).
   const drivePrev = () => { $('#dr-prev').textContent = backupFileName($('#dr-name').value, Date.now()); };
@@ -1004,6 +1120,103 @@ function bindDataEvents(v) {
     ev.target.value = keep;
     state.settings = await saveSettings({ backupKeep: keep });
   };
+  // ---------- Koneksi & operasi Google Drive ----------
+  const setConnUi = (connected) => {
+    $('#dr-connect').hidden = connected;
+    $('#dr-disconnect').hidden = !connected;
+    $('#dr-upload').hidden = !connected;
+  };
+  $('#dr-connect').onclick = async () => {
+    if (!isConfigured()) { toast($('#toast-host'), 'Isi oauth2.client_id dulu — lihat docs/SETUP-DRIVE.md'); return; }
+    $('#dr-status').textContent = 'Menghubungkan…';
+    try {
+      await getToken(true);
+      $('#dr-status').textContent = 'Terhubung';
+      setConnUi(true);
+      refreshDriveList();
+    } catch (e) {
+      $('#dr-status').textContent = 'Gagal: ' + e.message;
+    }
+  };
+  $('#dr-disconnect').onclick = async () => {
+    await driveDisconnect();
+    $('#dr-status').textContent = 'Terputus';
+    setConnUi(false);
+    $('#dr-list').innerHTML = '';
+  };
+  $('#dr-upload').onclick = async (ev) => {
+    const btn = ev.target;
+    btn.disabled = true;
+    $('#dr-status').textContent = 'Mengunggah…';
+    try {
+      await getToken(true);
+      const r = await uploadBackup();
+      $('#dr-status').textContent = 'Terunggah: ' + r.name + (r.removed ? ' (' + r.removed + ' file lama dirotasi)' : '');
+      refreshDriveList();
+    } catch (e) {
+      $('#dr-status').textContent = 'Gagal: ' + e.message;
+    }
+    btn.disabled = false;
+  };
+  $('#dr-auto').onchange = async (ev) => {
+    state.settings = await saveSettings({ backupToDrive: ev.target.checked });
+  };
+  $('#dr-refresh').onclick = () => refreshDriveList();
+  $('#dr-clear').onclick = (ev) => confirm2(ev.target, 'Hapus SEMUA file di Drive? Klik lagi', async () => {
+    $('#dr-status').textContent = 'Menghapus…';
+    try {
+      const n = await deleteAllCloudBackups();
+      $('#dr-status').textContent = n + ' file dihapus dari Drive';
+      refreshDriveList();
+    } catch (e) {
+      $('#dr-status').textContent = 'Gagal: ' + e.message;
+    }
+  });
+
+  async function refreshDriveList() {
+    const host = $('#dr-list');
+    try {
+      const files = await listCloudBackups();
+      if (!files.length) { host.innerHTML = '<span class="mg-muted">Belum ada backup di Drive.</span>'; return; }
+      host.innerHTML = files.map((f) => {
+        const kb = f.size ? Math.round(Number(f.size) / 1024) + ' KB' : '';
+        return '<div class="mg-list-row" data-id="' + f.id + '"><div class="grow">' + escapeHtml(f.name) +
+          (kb ? ' <span class="mg-muted">' + kb + '</span>' : '') + '</div>' +
+          '<button class="qm-btn-ghost dr-restore">Restore</button>' +
+          '<button class="qm-btn-danger dr-del">Hapus</button></div>';
+      }).join('');
+      host.querySelectorAll('.mg-list-row').forEach((row) => {
+        const id = row.dataset.id;
+        row.querySelector('.dr-restore').onclick = (ev) => confirm2(ev.target, 'Timpa SEMUA data? Data terkunci ikut terhapus! Klik lagi', async () => {
+          const r = await restoreCloudBackup(id);
+          toast($('#toast-host'), 'Restored: ' + r.bookmarks + ' bookmark');
+          await afterWrite(null);
+        });
+        row.querySelector('.dr-del').onclick = (ev) => confirm2(ev.target, 'Hapus file ini dari Drive? Klik lagi', async () => {
+          await deleteCloudBackup(id);
+          refreshDriveList();
+        });
+      });
+    } catch (e) {
+      host.innerHTML = '<span class="mg-muted">Gagal memuat: ' + escapeHtml(e.message) + '</span>';
+    }
+  }
+
+  // Status koneksi awal (non-blocking): terhubung bila token bisa didapat tanpa prompt.
+  (async () => {
+    if (!isConfigured()) {
+      $('#dr-status').textContent = 'OAuth client ID belum diisi — lihat docs/SETUP-DRIVE.md';
+      return;
+    }
+    try {
+      await getToken(false);
+      $('#dr-status').textContent = 'Terhubung';
+      setConnUi(true);
+      refreshDriveList();
+    } catch (e) {
+      $('#dr-status').textContent = 'Belum terhubung — klik Hubungkan Google Drive';
+    }
+  })();
 }
 
 async function refreshBackupList() {
@@ -1013,14 +1226,21 @@ async function refreshBackupList() {
   host.innerHTML = keys.map((k) => {
     const label = k.replace('qmBackup:', '');
     return '<div class="mg-list-row" data-key="' + k + '"><div class="grow">' + escapeHtml(label) + '</div>' +
-      '<button class="qm-btn-ghost bk-restore">Restore</button></div>';
+      '<button class="qm-btn-ghost bk-restore">Restore</button>' +
+      '<button class="qm-btn-danger bk-del">Hapus</button></div>';
   }).join('');
   host.querySelectorAll('.bk-restore').forEach((btn) => {
-    btn.onclick = (ev) => confirm2(ev.target, 'Timpa semua data? Klik lagi', async () => {
+    btn.onclick = (ev) => confirm2(ev.target, 'Timpa SEMUA data? Data terkunci ikut terhapus! Klik lagi', async () => {
       const key = btn.closest('[data-key]').dataset.key;
       const r = await restoreBackup(key);
       toast($('#toast-host'), 'Restored: ' + r.bookmarks + ' bookmark');
       await afterWrite(null);
+    });
+  });
+  host.querySelectorAll('.bk-del').forEach((btn) => {
+    btn.onclick = (ev) => confirm2(ev.target, 'Hapus backup ini? Klik lagi', async () => {
+      await deleteBackup(btn.closest('[data-key]').dataset.key);
+      refreshBackupList();
     });
   });
 }
@@ -1035,6 +1255,7 @@ async function renderSettings() {
   const v = $('#view-settings');
   const s = state.settings;
   const catRows = builtinCategoryRows(s);
+  const hasPw = await hasPassword();
   v.innerHTML = '<h1>Pengaturan</h1>' +
     '<div class="mg-sub">Semua perubahan tersimpan otomatis (auto-save) — tanpa tombol Save.</div>' +
     '<div class="mg-card glass"><h2>Umum</h2>' +
@@ -1059,6 +1280,20 @@ async function renderSettings() {
     '<div class="mg-row"><label>Mirror ke bookmark native</label>' +
     '<input type="checkbox" id="st-mirror" ' + (s.mirrorNative ? 'checked' : '') + '> ' +
     '<span class="mg-muted">Tiap save juga ditulis ke folder "QuickMark Pro" di bookmark browser</span></div></div>' +
+    '<div class="mg-card glass"><h2>Privasi — profil terkunci</h2>' +
+    '<div class="mg-row"><label>Password</label>' +
+    '<input id="st-pw-old" type="password" placeholder="Password lama" ' + (hasPw ? '' : 'disabled title="Belum ada password"') + '>' +
+    '<input id="st-pw-new" type="password" placeholder="Password baru (min 4)">' +
+    '<input id="st-pw-new2" type="password" placeholder="Ulangi baru">' +
+    '<button id="st-pw-save" class="qm-btn-primary">' + (hasPw ? 'Ganti' : 'Set') + '</button>' +
+    '<span id="st-pw-status" class="mg-muted"></span></div>' +
+    '<div class="mg-row"><label>Durasi tampil</label><select id="st-lockmin">' + lockMinOptions(s.lockAutoMin) + '</select>' +
+    '<span class="mg-muted">Berapa lama profil terkunci tampil setelah dibuka kuncinya</span></div>' +
+    '<div class="mg-row"><label>Sesi</label><button id="st-locknow" class="qm-btn-ghost">Kunci sekarang</button>' +
+    '<button id="st-pw-remove" class="qm-btn-danger">Hapus password</button>' +
+    '<span class="mg-muted">Hapus password juga melepas semua status terkunci</span></div>' +
+    '<div class="mg-row mg-muted">Peringatan: lupa password = profil terkunci tidak bisa dibuka (tanpa reset). ' +
+    'Data terkunci TIDAK ikut backup lokal/Drive/export biasa — cadangannya hanya "Export terenkripsi" di Data &amp; Backup.</div></div>' +
     '<div class="mg-card glass"><h2>Dataset kategori bawaan</h2><div class="mg-dataset-grid">' + catRows + '</div></div>' +
     '<div class="mg-card glass"><h2>Shortcut keyboard</h2>' +
     '<div class="mg-row mg-muted">Ctrl+Shift+K — buka popup · Ctrl+Shift+S — quick-save · omnibox: ketik <b>qm &lt;query&gt;</b> di address bar.<br>' +
@@ -1073,6 +1308,15 @@ async function renderSettings() {
 function themeOptions(t) {
   return [['dark', 'Dark'], ['light', 'Light'], ['system', 'System']]
     .map(([v, l]) => '<option value="' + v + '"' + (t === v ? ' selected' : '') + '>' + l + '</option>').join('');
+}
+
+function lockMinOptions(v) {
+  const opts = [
+    [15, '15 menit (default)'], [1, '1 menit'], [5, '5 menit'], [30, '30 menit'], [60, '60 menit'],
+    ['browser', 'Sampai browser ditutup'], ['manual', 'Tampil terus sampai dikunci manual']
+  ];
+  return opts.map(([val, l]) =>
+    '<option value="' + val + '"' + (String(v) === String(val) ? ' selected' : '') + '>' + l + '</option>').join('');
 }
 
 function builtinCategoryRows(s) {
@@ -1115,13 +1359,46 @@ function bindSettingsEvents(v) {
       await refreshDerived(); // grup dropdown & chips kategori langsung ikut
     };
   });
+  // Privasi — profil terkunci.
+  $('#st-pw-save').onclick = async () => {
+    const nw = $('#st-pw-new').value;
+    const nw2 = $('#st-pw-new2').value;
+    if (nw !== nw2) { $('#st-pw-status').textContent = 'Konfirmasi password tidak sama'; return; }
+    try {
+      await setPassword(nw, $('#st-pw-old').value || undefined);
+      await refreshDerived();
+      toast($('#toast-host'), 'Password tersimpan');
+    } catch (e) {
+      $('#st-pw-status').textContent = e.message;
+    }
+  };
+  $('#st-lockmin').onchange = async (ev) => {
+    const v = ev.target.value;
+    state.settings = await saveSettings({ lockAutoMin: /^\d+$/.test(v) ? Number(v) : v });
+  };
+  $('#st-locknow').onclick = async () => {
+    await lockNow();
+    await afterWrite(null); // broadcast memicu reload — profil terkunci disembunyikan lagi
+  };
+  $('#st-pw-remove').onclick = (ev) => confirm2(ev.target, 'Hapus password? Klik lagi', async () => {
+    const pw = await askPassword({ title: 'Konfirmasi password untuk menghapus', confirmLabel: 'Hapus' });
+    if (pw == null) return;
+    try {
+      await removePassword(pw);
+      await afterWrite('Password dihapus — semua profil tidak lagi terkunci');
+    } catch (e) {
+      toast($('#toast-host'), e.message);
+    }
+  });
   $('#st-wipe').onclick = (ev) => confirm2(ev.target, 'HAPUS SEMUA? Klik lagi', async () => {
     await db.clearStore('bookmarks');
     await db.clearStore('categories');
     await db.clearStore('learning');
-    // Profil: sisakan default
-    const keep = state.profiles.find((p) => p.isDefault);
-    for (const p of state.profiles) {
+    // Profil: sisakan default — ambil dari db langsung supaya profil TERKUNCI (tidak ada di
+    // state.profiles yang tersaring) ikut terhapus; wipe harus benar-benar menyeluruh.
+    const allProfiles = await db.getAll('profiles');
+    const keep = allProfiles.find((p) => p.isDefault);
+    for (const p of allProfiles) {
       if (!keep || p.id !== keep.id) await db.remove('profiles', p.id);
     }
     await afterWrite('Semua data dihapus');

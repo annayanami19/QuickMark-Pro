@@ -3,12 +3,13 @@
 // tanpa interval. Pekerjaan: commands, omnibox, alarm backup harian.
 
 import * as db from '../lib/db.js';
-import { resolveActiveProfile, listProfiles } from '../lib/profiles.js';
+import { resolveActiveProfile, listProfiles, listVisibleProfiles, filterVisibleBookmarks } from '../lib/profiles.js';
 import { getSettings, saveSettings } from '../lib/settings.js';
 import { builtinCategories } from '../lib/categorizer.js';
 import { saveBookmark } from '../lib/save.js';
 import { buildIndex, search as fuzzySearch } from '../lib/search.js';
 import { createBackup } from '../lib/io.js';
+import { uploadBackup } from '../lib/drive.js';
 
 const BACKUP_ALARM = 'qmBackupDaily';
 
@@ -78,13 +79,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function handleQuickMeta(windowId) {
   const profile = await resolveActiveProfile(windowId);
-  const profiles = await listProfiles();
+  // Profil terkunci TIDAK dikirim ke panel web (bocor via dropdown bila tidak disaring).
+  const profiles = await listVisibleProfiles();
+  const visibleIds = new Set(profiles.map((p) => p.id));
   // Hanya kategori aktif untuk panel cepat web — nonaktif disembunyikan.
   const categories = (await db.listCategories(profile.id)).filter((c) => c.enabled !== false);
   // Semua kategori aktif lintas profil — panel web menyaring milik profil terpilih + shared
-  // saat select Profil diganti (sinkron dengan filter catOptionsGrouped di manager).
+  // saat select Profil diganti. Kategori own profil terkunci ikut disaring.
   const allCategories = (await db.listAllCategories())
     .filter((c) => c.enabled !== false)
+    .filter((c) => c.shared || visibleIds.has(c.profileId))
     .map((c) => ({ id: c.id, name: c.name, color: c.color, profileId: c.profileId }));
   const s = await getSettings();
   return {
@@ -144,7 +148,8 @@ chrome.omnibox.onInputEntered.addListener(async (text, disposition) => {
 });
 
 async function searchFor(query, limit) {
-  const all = await db.getAll('bookmarks');
+  // Omnibox tidak boleh membocorkan bookmark profil terkunci.
+  const all = await filterVisibleBookmarks(await db.getAll('bookmarks'));
   const idx = buildIndex(all);
   return fuzzySearch(query, idx, { limit });
 }
@@ -160,5 +165,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await createBackup();
   } catch (e) {
     console.error('Backup harian gagal:', e);
+  }
+  // Cloud opsional (opt-in via card Google Drive) — kegagalan jaringan tidak membatalkan backup lokal.
+  try {
+    const s = await getSettings();
+    if (s.backupToDrive) await uploadBackup();
+  } catch (e) {
+    console.error('Backup Drive gagal:', e);
   }
 });

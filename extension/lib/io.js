@@ -106,17 +106,57 @@ function hostOf(url) {
 }
 
 // ---------- Export ----------
+// Bagi data jadi terlihat vs terkunci — pure function (dipakai exportJSON/exportLockedData,
+// dites di suite tanpa db). Kategori shared selalu ikut terlihat; learning ikut profilnya.
+export function splitLockedData(profiles, categories, bookmarks, learning) {
+  const lockedIds = new Set(profiles.filter((p) => p.locked).map((p) => p.id));
+  const vis = {
+    profiles: profiles.filter((p) => !lockedIds.has(p.id)),
+    categories: categories.filter((c) => c.shared || !lockedIds.has(c.profileId)),
+    bookmarks: bookmarks.filter((b) => !lockedIds.has(b.profileId)),
+    learning: learning.filter((l) => !lockedIds.has(l.profileId))
+  };
+  const lock = {
+    profiles: profiles.filter((p) => lockedIds.has(p.id)),
+    categories: categories.filter((c) => !c.shared && lockedIds.has(c.profileId)),
+    bookmarks: bookmarks.filter((b) => lockedIds.has(b.profileId)),
+    learning: learning.filter((l) => lockedIds.has(l.profileId))
+  };
+  return { lockedIds, visible: vis, locked: lock };
+}
+
 // JSON lengkap: profiles + categories + bookmarks + learning (round-trip).
+// Profil TERKUNCI SELALU dikecualikan (walau sedang di-unlock) — file normal tidak pernah
+// berisi data terkunci tanpa enkripsi. Data terkunci punya jalur sendiri (exportLockedData).
 export async function exportJSON() {
   const [profiles, categories, bookmarks, learning] = await Promise.all([
     db.getAll('profiles'), db.getAll('categories'), db.getAll('bookmarks'), db.getAll('learning')
   ]);
+  const { visible, lockedIds } = splitLockedData(profiles, categories, bookmarks, learning);
   return JSON.stringify({
     app: 'quickmark-pro',
     version: 1,
     exportedAt: new Date().toISOString(),
-    profiles, categories, bookmarks, learning
+    lockedExcluded: lockedIds.size > 0,
+    profiles: visible.profiles, categories: visible.categories,
+    bookmarks: visible.bookmarks, learning: visible.learning
   }, null, 2);
+}
+
+// Kumpulkan HANYA data profil terkunci (untuk dienkripsi via lock.encryptExport).
+// Return null bila tidak ada profil terkunci.
+export async function exportLockedData() {
+  const [profiles, categories, bookmarks, learning] = await Promise.all([
+    db.getAll('profiles'), db.getAll('categories'), db.getAll('bookmarks'), db.getAll('learning')
+  ]);
+  const { locked } = splitLockedData(profiles, categories, bookmarks, learning);
+  if (!locked.profiles.length) return null;
+  return {
+    app: 'quickmark-pro-locked', version: 1,
+    exportedAt: new Date().toISOString(),
+    profiles: locked.profiles, categories: locked.categories,
+    bookmarks: locked.bookmarks, learning: locked.learning
+  };
 }
 
 // HTML Netscape (kompatibel semua browser).
@@ -176,6 +216,14 @@ export function sanitizeBackupName(raw) {
   return cleaned || 'quickmark-backup';
 }
 
+// Jumlah backup yang dipertahankan — SAMA untuk rotasi lokal & Drive (satu sumber setting).
+// Mode single = selalu 1; mode multi = backupKeep (1-50, default 5).
+export function cloudKeep(s) {
+  return s.backupMode === 'single'
+    ? 1
+    : Math.max(1, Math.min(50, parseInt(s.backupKeep, 10) || 5));
+}
+
 export function backupFileName(nameBase, now, ext) {
   const d = now instanceof Date ? now : new Date(now || Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
@@ -208,11 +256,8 @@ export async function listBackups() {
 
 async function rotateBackups() {
   const s = await getSettings();
-  const keep = s.backupMode === 'single'
-    ? 1 // file tunggal: selalu sisa 1 — snapshot lama dihapus
-    : Math.max(1, Math.min(50, parseInt(s.backupKeep, 10) || 5));
   const keys = await listBackups();
-  const excess = keys.slice(keep);
+  const excess = keys.slice(cloudKeep(s));
   if (excess.length) await chrome.storage.local.remove(excess);
 }
 
@@ -223,6 +268,50 @@ export async function restoreBackup(key) {
   const json = out[key];
   if (!json) throw new Error('Backup tidak ditemukan: ' + key);
   return applyImportJson(json);
+}
+
+// Hapus satu snapshot lokal (UI wajib konfirmasi 2-klik sebelum memanggil).
+export async function deleteBackup(key) {
+  await chrome.storage.local.remove(key);
+}
+
+// Hapus SEMUA snapshot lokal — DESTRUKTIF; UI wajib konfirmasi 2-klik.
+export async function clearBackups() {
+  const keys = await listBackups();
+  if (keys.length) await chrome.storage.local.remove(keys);
+  return keys.length;
+}
+
+// Import file terenkripsi: GANTI semua profil terkunci saat ini dengan payload hasil dekrip.
+// Profil tidak-terkunci & kategori shared TIDAK tersentuh (bukan wipe penuh).
+// Payload profile dipaksa locked: true — file ini hanya untuk data terkunci.
+export async function applyLockedImport(data) {
+  if (!data || !Array.isArray(data.profiles) || !data.profiles.length) {
+    throw new Error('File data terkunci tidak valid');
+  }
+  const [profiles, categories, bookmarks, learning] = await Promise.all([
+    db.getAll('profiles'), db.getAll('categories'), db.getAll('bookmarks'), db.getAll('learning')
+  ]);
+  // Guard konflik: id profil di payload tidak boleh menabrak profil TIDAK terkunci yang ada.
+  const freeIds = new Set(profiles.filter((p) => !p.locked).map((p) => p.id));
+  for (const p of data.profiles) {
+    if (freeIds.has(p.id)) throw new Error('Konflik id profil: ' + p.id + ' sudah dipakai profil tidak terkunci');
+  }
+  // Hapus data profil terkunci lama (profil + kategori own + bookmark + learning).
+  const curLocked = new Set(profiles.filter((p) => p.locked).map((p) => p.id));
+  for (const pid of curLocked) {
+    for (const b of bookmarks) if (b.profileId === pid) await db.remove('bookmarks', b.id);
+    for (const c of categories) if (c.profileId === pid && !c.shared) await db.remove('categories', c.id);
+    for (const l of learning) if (l.profileId === pid) await db.remove('learning', [l.profileId, l.domain]);
+    await db.remove('profiles', pid);
+  }
+  // Tulis payload — semua profil payload dianggap terkunci.
+  const inProfiles = data.profiles.map((p) => ({ ...p, locked: true }));
+  await db.bulkPut('profiles', inProfiles);
+  await db.bulkPut('categories', data.categories || []);
+  await db.bulkPut('bookmarks', data.bookmarks || []);
+  await db.bulkPut('learning', data.learning || []);
+  return { profiles: inProfiles.length, bookmarks: (data.bookmarks || []).length };
 }
 
 export async function applyImportJson(json) {

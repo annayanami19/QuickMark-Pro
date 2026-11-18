@@ -19,7 +19,9 @@ export const DEFAULT_SETTINGS = {
   bookmarkView: 'table',            // tampilan daftar Bookmark manager: table (bawaan) | tree (hierarki)
   backupMode: 'multi',              // penyimpanan backup LOKAL & DRIVE (saling sinkron): multi (file baru ber-timestamp) | single (1 file, diganti tiap backup)
   backupName: 'quickmark-backup',   // bagian nama bebas pada nama file/key backup — dipakai lokal & Drive
-  backupKeep: 5                     // sisakan N backup terbaru — rotasi lokal & Drive, hanya berlaku mode multi
+  backupKeep: 5,                    // sisakan N backup terbaru — rotasi lokal & Drive, hanya berlaku mode multi
+  backupToDrive: false,             // alarm harian ikut mengirim backup ke Drive (butuh koneksi aktif)
+  lockAutoMin: 15                   // durasi profil terkunci tampil setelah unlock: menit (1/5/15/30/60) | 'browser' (sampai browser tutup) | 'manual' (tampil terus sampai dikunci)
 };
 
 const KEY = 'settings';

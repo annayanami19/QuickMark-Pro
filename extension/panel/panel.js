@@ -1,8 +1,9 @@
 // panel.js — side panel: browse kategori + search + filter flag (PRD §3.2, §3.3, §3.5).
 import * as db from '../lib/db.js';
-import { resolveActiveProfile, listProfiles, setActiveProfileId } from '../lib/profiles.js';
+import { resolveActiveProfile, listProfiles, listVisibleProfiles, setActiveProfileId } from '../lib/profiles.js';
 import { buildIndex, search as fuzzySearch, highlightRanges } from '../lib/search.js';
-import { escapeHtml, onBroadcast, virtualList, faviconSrc, letterIcon, debounce } from '../lib/ui.js';
+import { categoryPickerChoices } from '../lib/categorizer.js';
+import { escapeHtml, toast, onBroadcast, virtualList, faviconSrc, letterIcon, debounce, renderLockedEntry } from '../lib/ui.js';
 import { getSettings, applyTheme } from '../lib/settings.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -19,7 +20,16 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   state.windowId = tab ? tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
   state.profile = await resolveActiveProfile(state.windowId);
-  state.profiles = await listProfiles();
+  state.profiles = await listVisibleProfiles();
+  const lockedSlot = document.createElement('div');
+  lockedSlot.style.padding = '0 10px';
+  document.querySelector('header.pn-header').after(lockedSlot);
+  state.lockedSlot = lockedSlot;
+  await renderLockedEntry(lockedSlot, {
+    lockAutoMin: state.settings.lockAutoMin,
+    onUnlocked: () => refresh(),
+    onError: (m) => toast($('#toast-host'), m)
+  });
   await reload();
   renderProfileSwitcher();
   renderCatChips();
@@ -126,15 +136,20 @@ async function openBookmark(bm) {
 async function renderCatChips() {
   const host = $('#cat-chips');
   host.innerHTML = '';
-  // Hanya kategori aktif di chips — nonaktif disembunyikan (bookmark tetap ada).
-  const cats = (await db.listCategories(state.profile.id)).filter((c) => c.enabled !== false);
+  // Kategori bawaan dataset aktif + kategori buatan user yang aktif — sama dengan popup.
+  // Nonaktif disembunyikan (bookmark tetap ada).
+  const dbCats = await db.listCategories(state.profile.id);
+  const { builtin, custom } = categoryPickerChoices(dbCats, state.settings.datasetEnabled);
+  const cats = builtin.concat(custom);
   const counts = {};
   for (const e of state.index) counts[e.cat || ''] = (counts[e.cat || ''] || 0) + 1;
   const mk = (id, label, color) => {
     const btn = document.createElement('button');
     btn.className = 'qm-chip' + (state.categoryId === id ? ' active' : '');
     if (color) btn.style.setProperty('--chip-color', color);
-    btn.textContent = label + ' (' + (counts[id || ''] || 0) + ')';
+    // "Semua" = total bookmark di profil (bukan jumlah tanpa kategori).
+    const n = id === null ? state.index.length : (counts[id] || 0);
+    btn.textContent = label + ' (' + n + ')';
     btn.onclick = () => {
       state.categoryId = state.categoryId === id ? null : id;
       renderCatChips();
@@ -202,7 +217,17 @@ function renderBadgeBar() {
 }
 
 async function refresh() {
-  state.profiles = await listProfiles();
+  state.profiles = await listVisibleProfiles();
+  // Profil aktif bisa jadi terkunci/terhapus sejak refresh — re-resolve agar tidak
+  // menampilkan bookmark profil terkunci (resolveActiveProfile sudah menyaring).
+  if (!state.profiles.some((p) => p.id === state.profile.id)) {
+    state.profile = await resolveActiveProfile(state.windowId);
+  }
+  await renderLockedEntry(state.lockedSlot, {
+    lockAutoMin: state.settings.lockAutoMin,
+    onUnlocked: () => refresh(),
+    onError: (m) => toast($('#toast-host'), m)
+  });
   await reload();
   renderProfileSwitcher();
   renderCatChips();

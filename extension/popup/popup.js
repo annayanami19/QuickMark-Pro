@@ -1,10 +1,10 @@
 // popup.js — quick save + search + switcher profil (PRD §3.1, §3.2, §3.4).
 import * as db from '../lib/db.js';
-import { resolveActiveProfile, listProfiles, setActiveProfileId } from '../lib/profiles.js';
+import { resolveActiveProfile, listProfiles, listVisibleProfiles, setActiveProfileId } from '../lib/profiles.js';
 import { saveBookmark } from '../lib/save.js';
 import { buildIndex, search as fuzzySearch, highlightRanges } from '../lib/search.js';
 import { classify, confidenceOf, learningMap, builtinCategories } from '../lib/categorizer.js';
-import { escapeHtml, toast, onBroadcast, faviconSrc, letterIcon, debounce } from '../lib/ui.js';
+import { escapeHtml, toast, onBroadcast, faviconSrc, letterIcon, debounce, renderLockedEntry } from '../lib/ui.js';
 import { getSettings, applyTheme } from '../lib/settings.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -24,9 +24,17 @@ async function init() {
   state.tab = tab;
   state.windowId = tab.windowId;
   state.profile = await resolveActiveProfile(tab.windowId);
-  state.profiles = await listProfiles();
+  state.profiles = await listVisibleProfiles();
+  const lockedSlot = document.createElement('div');
+  document.querySelector('header.qm-header').after(lockedSlot);
+  state.lockedSlot = lockedSlot;
   await renderSaveCard();
   renderProfileSwitcher();
+  await renderLockedEntry(lockedSlot, {
+    lockAutoMin: state.settings.lockAutoMin,
+    onUnlocked: () => refreshAll(),
+    onError: (m) => toast($('#toast-host'), m)
+  });
   await reloadIndex();
   bindEvents();
   onBroadcast((msg) => {
@@ -57,7 +65,9 @@ async function renderSaveCard() {
   // Cek duplikat lintas profil (popup in-memory sudah load semua bookmark).
   const url = normalizeUrlForCheck(tab.url);
   if (url) {
-    const dup = await db.findDuplicateOf(url);
+    let dup = await db.findDuplicateOf(url);
+    // Duplikat di profil terkunci tidak diungkap (bocor privasi) — anggap bebas.
+    if (dup && !state.profiles.some((p) => p.id === dup.profileId)) dup = null;
     renderDup(dup);
   }
 }
@@ -373,7 +383,17 @@ function moveSel(delta) {
 }
 
 async function refreshAll() {
-  state.profiles = await listProfiles();
+  state.profiles = await listVisibleProfiles();
+  // Profil aktif bisa jadi terkunci/terhapus sejak refresh — re-resolve agar tidak
+  // menampilkan bookmark profil terkunci (resolveActiveProfile sudah menyaring).
+  if (!state.profiles.some((p) => p.id === state.profile.id)) {
+    state.profile = await resolveActiveProfile(state.windowId);
+  }
+  await renderLockedEntry(state.lockedSlot, {
+    lockAutoMin: state.settings.lockAutoMin,
+    onUnlocked: () => refreshAll(),
+    onError: (m) => toast($('#toast-host'), m)
+  });
   await reloadIndex();
   await renderSaveCard();
   renderProfileSwitcher();

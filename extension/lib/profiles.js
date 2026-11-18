@@ -1,6 +1,7 @@
 // profiles.js — CRUD profil + profil aktif per jendela (chrome.storage.session per windowId).
 import * as db from './db.js';
 import { broadcast } from './ui.js';
+import { isUnlocked } from './lock.js';
 
 export const DEFAULT_PROFILE_ID = 'pribadi';
 export const DEFAULT_PROFILE = { id: 'pribadi', name: 'Pribadi', color: '#5eead4', isDefault: true };
@@ -21,6 +22,34 @@ export async function listProfiles() {
 
 export async function getProfile(id) {
   return db.get('profiles', id);
+}
+
+// Profil terlihat = tidak terkunci, atau terkunci tapi sedang di-unlock (lock.js).
+// SATU PINTU penyaringan — semua permukaan (popup/panel/manager/panel web/omnibox) wajib pakai ini.
+export async function listVisibleProfiles() {
+  const all = await listProfiles();
+  if (await isUnlocked()) return all;
+  return all.filter((p) => !p.locked);
+}
+
+// Filter bookmark milik profil terkunci saat belum di-unlock — dipakai omnibox, manager,
+// dan export HTML (satu pintu; data terkunci tidak boleh bocor ke hasil mana pun).
+export async function filterVisibleBookmarks(bookmarks) {
+  if (await isUnlocked()) return bookmarks;
+  const locked = new Set((await db.getAll('profiles')).filter((p) => p.locked).map((p) => p.id));
+  if (!locked.size) return bookmarks;
+  return bookmarks.filter((b) => !locked.has(b.profileId));
+}
+
+// Guard mengunci: minimal satu profil harus tetap terlihat saat semua terkunci.
+export async function assertCanLock(profileId) {
+  const all = await listProfiles();
+  const othersVisible = all.filter((p) => p.id !== profileId && !p.locked);
+  if (!othersVisible.length) {
+    const err = new Error('Minimal satu profil harus tetap terlihat — tidak bisa mengunci profil terakhir.');
+    err.code = 'LAST_VISIBLE';
+    throw err;
+  }
 }
 
 export async function createProfile(name, color) {
@@ -74,13 +103,14 @@ export async function setActiveProfileId(windowId, profileId) {
 }
 
 // Profil aktif (fallback: default) — helper satu pintu untuk semua permukaan.
+// Profil aktif yang terkunci & belum di-unlock TIDAK diresolve — fallback ke default/profil terlihat.
 export async function resolveActiveProfile(windowId) {
   await ensureProfiles();
+  const visible = await listVisibleProfiles();
   const activeId = await getActiveProfileId(windowId);
   if (activeId) {
-    const p = await getProfile(activeId);
+    const p = visible.find((x) => x.id === activeId);
     if (p) return p;
   }
-  const all = await listProfiles();
-  return all.find((p) => p.isDefault) || all[0];
+  return visible.find((p) => p.isDefault) || visible[0];
 }

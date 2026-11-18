@@ -9,6 +9,7 @@
   let meta = null;        // { profiles, categories, allCategories, builtin, activeProfileId }
   let lastSettings = {};  // snapshot chrome.storage.sync('settings') — mode posisi dsb.
   let fab = null, panel = null, toastEl = null;
+  let docClickHandler = null; // handler klik-luar dropdown — di-swap tiap render supaya tidak menumpuk
   let fabDragging = false;
   let catVal = ''; // kategori terpilih panel web ('' = otomatis) — dibaca saveFromPanel
 
@@ -187,9 +188,14 @@
     setCatLabel(); // reset bila kategori terpilih tak ada di profil baru
     $('qmp-prof').addEventListener('change', setCatLabel);
     // Klik di luar dropdown (di dalam maupun di luar panel) menutup daftar kategori.
-    document.addEventListener('click', (ev) => {
-      if (ddPop.classList.contains('qmp-open') && !$('qmp-dd').contains(ev.target)) closeCatPop();
-    });
+    // renderPanel jalan tiap panel dibuka — handler lama dicopot dulu supaya tidak
+    // menumpuk satu listener document per buka-tutup.
+    if (docClickHandler) document.removeEventListener('click', docClickHandler);
+    docClickHandler = (ev) => {
+      const ddPopNow = $('qmp-dd-pop');
+      if (ddPopNow && ddPopNow.classList.contains('qmp-open') && !$('qmp-dd').contains(ev.target)) closeCatPop();
+    };
+    document.addEventListener('click', docClickHandler);
     // Mode posisi sama dengan Pengaturan & manager — disimpan lewat SW (broadcast ikut).
     $('qmp-mode').value = lastSettings.quickPanelMode || 'corner';
     $('qmp-mode').addEventListener('change', async (ev) => {
@@ -205,6 +211,46 @@
       if (ev.key === 'Escape') { if (closeCatPop()) return; togglePanel(false); }
       if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) saveFromPanel();
     });
+  }
+
+  // Push 'qm-push' dari extension (broadcast ui.js): profil/kategori/setting berubah di
+  // permukaan lain. Panel yang SEDANG terbuka memuat ulang meta live — nilai form yang
+  // sedang diketik dipertahankan.
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'qm-push') onPushRefresh();
+  });
+
+  function catNameOf(id) {
+    if (!meta || !id) return '';
+    const c = (meta.allCategories || []).find((x) => x.id === id);
+    return c ? c.name : '';
+  }
+
+  async function onPushRefresh() {
+    if (!panel || panel.hidden) return;
+    const keep = {
+      url: $('qmp-url') ? $('qmp-url').value : '',
+      title: $('qmp-title') ? $('qmp-title').value : '',
+      prof: $('qmp-prof') ? $('qmp-prof').value : '',
+      rl: $('qmp-rl') ? $('qmp-rl').checked : false,
+      fav: $('qmp-fav') ? $('qmp-fav').checked : false,
+      cat: catVal
+    };
+    const m = await ensureMeta();
+    if (!m) return;
+    renderPanel();
+    panel.hidden = false;
+    $('qmp-url').value = keep.url;
+    $('qmp-title').value = keep.title;
+    if ($('qmp-prof')) {
+      const sel = $('qmp-prof');
+      const still = Array.from(sel.options).some((o) => o.value === keep.prof);
+      if (still) sel.value = keep.prof; // profil terpilih hilang (dikunci) -> fallback default render
+    }
+    if ($('qmp-rl')) $('qmp-rl').checked = keep.rl;
+    if ($('qmp-fav')) $('qmp-fav').checked = keep.fav;
+    catVal = keep.cat;
+    $('qmp-dd-lab').textContent = catVal ? (catNameOf(catVal) || '(otomatis)') : '(otomatis)';
   }
 
   async function togglePanel(force) {

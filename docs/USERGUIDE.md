@@ -75,7 +75,7 @@ Jika URL sudah pernah disimpan, popup menampilkan banner **"Sudah ada di bookmar
 
 - Ganti profil: dropdown kanan-atas popup / side panel — 1 klik.
 - Profil aktif **per jendela browser**: jendela kerja bisa di profil "Kantor", jendela pribadi di "Pribadi".
-- Kelola di **Kelola → Profil**: tambah, rename, warna aksen, hapus (diblokir selama profil masih berisi bookmark).
+- Kelola di **Kelola → Profil**: tambah, rename, warna aksen, hapus (diblokir selama profil masih berisi bookmark), kunci/sembunyikan (lihat [Profil terkunci](#profil-terkunci-privasi)).
 - Bookmark penting lintas konteks: edit bookmark → flag `shared` via kategori shared.
 
 ## Baca nanti & Favorit
@@ -83,13 +83,35 @@ Jika URL sudah pernah disimpan, popup menampilkan banner **"Sudah ada di bookmar
 - Flag dari popup saat save, tombol di panel, atau checkbox di manager.
 - Bookmark read-later yang dibuka lewat QuickMark > 3 kali mendapat saran "tandai selesai" (mematikan flag).
 
+## Profil terkunci (privasi)
+
+Sembunyikan profil beserta seluruh bookmark-nya dari semua permukaan — popup, side panel, panel cepat di halaman web, manager, statistik, dan omnibox `qm` — sampai dibuka dengan password.
+
+- **Atur password** (sekali): **Kelola → Pengaturan → card Privasi** — set password (min 4 karakter). Satu password global untuk semua profil terkunci.
+- **Kunci profil**: **Kelola → Profil** → tombol **Kunci** di baris profil (butuh password sudah diatur; minimal satu profil harus tetap terlihat).
+- **Buka kunci**: baris "N profil terkunci — Buka kunci" di bawah header popup / side panel, atau tombol **Buka kunci** di view Profil manager → masukkan password.
+- **Durasi tampil**: Pengaturan → Privasi → *Durasi tampil* — 1/5/15/30/60 menit (default 15), *Sampai browser ditutup*, atau *Tampil terus sampai dikunci manual*. Tombol **Kunci sekarang** menyembunyikan lagi seketika. Browser restart selalu mengunci ulang.
+- **Salah password 5x** beruntun = cooldown 30 detik.
+- **Ganti / hapus password**: card Privasi. Hapus password (wajib tahu password lama) juga melepas semua status terkunci.
+- **Backup & export data terkunci** — jalur TERPISAH:
+  - Backup lokal (otomatis/manual), Google Drive, Export JSON/HTML biasa **tidak pernah memuat** data profil terkunci — file-nya aman dibagikan.
+  - Satu-satunya cadangan: **Kelola → Data & Backup → card Backup lokal → Export terenkripsi** — file `YYYYMMDD-HHmmss-<nama>-private.json` terenkripsi AES-256 (terproteksi password; tanpa password isinya tidak terbaca).
+  - Pulihkan: Import → Dari file JSON → pilih file `-private.json` → masukkan password → hanya data terkunci yang diganti (data lain tidak tersentuh).
+- **Lupa password = data terkunci tidak bisa dibuka.** Tidak ada reset. Pastikan menyimpan file terenkripsi + password-nya.
+- Batas jujur: ini privasi "soft" — data masih tersimpan di IndexedDB browser (bisa dilihat via DevTools oleh yang menguasai perangkat). Password menghalangi tampilan & jalur export normal, bukan enkripsi database penuh.
+
 ## Import / Export / Dedup / Backup (Kelola → Data & Backup)
 
 - **Import**: file **JSON QuickMark** berisi SEMUA profil, kategori & bookmark — dipulihkan langsung tanpa memilih profil (konfirmasi timpa 2-klik karena menggantikan data). File **HTML Netscape** / bookmark **native browser** bersifat per-profil: di barisan itulah profil tujuan + mode (lewatkan duplikat / masukkan semua) dipakai. Folder native dijadikan saran kategori.
-- **Export**: JSON lengkap (round-trip aman) atau HTML Netscape (kompatibel semua browser). Nama file unduhan mengikuti pengaturan penamaan backup — format `YYYYMMDD-HHmmss-<nama>.json` / `.html`.
+- **Export**: JSON lengkap (round-trip aman) atau HTML Netscape (kompatibel semua browser). Nama file unduhan mengikuti pengaturan penamaan backup — format `YYYYMMDD-HHmmss-<nama>.json` / `.html`. Data profil terkunci TIDAK ikut (jalurnya: **Export terenkripsi** — lihat [Profil terkunci](#profil-terkunci-privasi)); restore/import file biasa menghapus profil terkunci yang ada (ada peringatan di konfirmasi).
 - **Dedup**: Scan dulu (laporan jumlah grup), lalu Auto-dedup (survivor = yang paling sering dibuka).
-- **Backup lokal** (card pertama): otomatis harian; tombol **Backup sekarang** untuk manual; **Restore** menimpa seluruh data (konfirmasi 2-klik). Snapshot lokal memakai nama format yang sama dengan file Drive — daftar lokal & Drive tampil seragam, dan mode/jumlahnya mengikuti pengaturan backup yang sama (saling sinkron).
-- **Google Drive** (card kedua, terpisah dari Backup lokal; koneksi menyusul — pengaturannya sudah aktif untuk backup lokal):
+- **Backup lokal** (card pertama): otomatis harian; tombol **Backup sekarang** untuk manual; tiap snapshot ada **Restore** (menimpa seluruh data, konfirmasi 2-klik) dan **Hapus** (konfirmasi 2-klik); tombol **Hapus semua** membersihkan seluruh snapshot lokal (konfirmasi 2-klik). Snapshot lokal memakai nama format yang sama dengan file Drive — daftar lokal & Drive tampil seragam, dan mode/jumlahnya mengikuti pengaturan backup yang sama (saling sinkron).
+- **Google Drive** (card kedua, terpisah dari Backup lokal):
+  - **Hubungkan Google Drive** — login akun Google + setujui scope `drive.file` (app hanya melihat file buatannya sendiri). Di Edge jalur login otomatis jatuh ke popup web (refresh token disimpan lokal). Setup client ID sekali saja: **docs/SETUP-DRIVE.md**.
+  - **Backup ke Drive** — kirim snapshot penuh ke folder "QuickMark Pro Backup" di Drive; rotasi/mode memakai pengaturan yang sama dengan backup lokal (saling sinkron).
+  - **Auto harian** — centang agar alarm backup harian ikut mengirim ke Drive; kegagalan jaringan tidak membatalkan backup lokal.
+  - **Daftar file Drive** — Muat daftar → per file ada **Restore** (menimpa semua data, konfirmasi 2-klik) dan **Hapus** (konfirmasi 2-klik); tombol **Hapus semua** membersihkan seluruh file backup di Drive (konfirmasi 2-klik).
+  - **Putuskan** — hapus refresh token lokal + revoke akses di Google; akses juga bisa dicabut dari [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
   - **Mode penyimpanan**: *File baru* (tiap backup membuat file ber-timestamp — ada riwayat) atau *File tunggal* (1 file, diganti tiap backup; nama selalu mencerminkan backup terakhir).
   - **Nama file**: bagian bebas yang bisa diedit; format lengkap `YYYYMMDD-HHmmss-<nama>.json` (urutan alfabetik = urutan waktu). Contoh langsung terlihat di card.
   - **Sisakan file**: N backup terbaru yang dipertahankan (default 5) — hanya berlaku mode *File baru*; mengatur rotasi lokal & Drive sekaligus.
@@ -97,7 +119,7 @@ Jika URL sudah pernah disimpan, popup menampilkan banner **"Sudah ada di bookmar
 ## Statistik & Pengaturan
 
 - **Kelola → Statistik**: total, per kategori (bar), 10 terbaru, 10 paling dibuka — dihitung on-demand.
-- **Kelola → Pengaturan**: tema (Dark/Light/System), profil default, mode favicon (cache lokal default / online / ikon huruf), mirror ke bookmark native (off default), dataset kategori on/off, hapus semua data.
+- **Kelola → Pengaturan**: tema (Dark/Light/System), profil default, mode favicon (cache lokal default / online / ikon huruf), mirror ke bookmark native (off default), dataset kategori on/off, privasi/password profil terkunci, hapus semua data.
 
 ## Shortcut
 
