@@ -9,7 +9,6 @@ import { builtinCategories } from '../lib/categorizer.js';
 import { saveBookmark } from '../lib/save.js';
 import { buildIndex, search as fuzzySearch } from '../lib/search.js';
 import { createBackup } from '../lib/io.js';
-import { uploadBackup } from '../lib/drive.js';
 
 const BACKUP_ALARM = 'qmBackupDaily';
 
@@ -169,7 +168,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   // Cloud opsional (opt-in via card Google Drive) — kegagalan jaringan tidak membatalkan backup lokal.
   try {
     const s = await getSettings();
-    if (s.backupToDrive) await uploadBackup();
+    // Google Drive dinonaktifkan: modul drive.js sengaja TIDAK di-import sama sekali.
+    // Saat diaktifkan lagi, impor dinamis di bawah otomatis berjalan bila flag true.
+    if (s.backupToDrive) {
+      const { DRIVE_ENABLED, uploadBackup } = await import('../lib/drive.js');
+      if (DRIVE_ENABLED) await uploadBackup();
+    }
   } catch (e) {
     console.error('Backup Drive gagal:', e);
   }

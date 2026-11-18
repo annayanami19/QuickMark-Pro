@@ -8,6 +8,10 @@
 import { getSettings } from './settings.js';
 import { exportJSON, applyImportJson, backupFileName, cloudKeep } from './io.js';
 
+// Sakelar fitur: false = card Google Drive dirender nonaktif & auto-backup harian
+// dilewati. Semua kode Drive tetap utuh — cukup ubah ke true untuk menghidupkan lagi.
+export const DRIVE_ENABLED = false;
+
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const FOLDER_NAME = 'QuickMark Pro Backup';
 const APP_PROP_QUERY = "appProperties has { key='app' and value='quickmark-pro' }";
@@ -178,6 +182,7 @@ export async function listCloudBackups() {
 
 // Upload snapshot penuh (exportJSON) — nama dari pengaturan, mode/rotasi dari setting yang sama.
 export async function uploadBackup() {
+  if (!DRIVE_ENABLED) throw new Error('Fitur Google Drive dinonaktifkan sementara');
   const s = await getSettings();
   const json = await exportJSON();
   const name = backupFileName(s.backupName);

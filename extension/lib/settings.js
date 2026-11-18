@@ -37,7 +37,15 @@ export async function getSettings() {
 export async function saveSettings(patch) {
   const cur = await getSettings();
   const merged = Object.assign({}, cur, patch);
-  await chrome.storage.sync.set({ [KEY]: merged });
+  // chrome.storage.sync.set() menolak promise saat gagal (kuota item/byte penuh,
+  // batas tulis per menit). Lempar ulang dengan pesan yang bisa ditampilkan UI.
+  // Sengaja TANPA baca-balik: penulisan bersamaan dari permukaan lain (panel web,
+  // popup) bisa membuat perbandingan salah dan memunculkan "gagal" palsu.
+  try {
+    await chrome.storage.sync.set({ [KEY]: merged });
+  } catch (e) {
+    throw new Error((e && e.message) ? e.message : 'Penyimpanan menolak perubahan');
+  }
   broadcast('settings-changed');
   return merged;
 }

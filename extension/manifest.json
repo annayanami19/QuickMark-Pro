@@ -42,16 +42,8 @@
     "favicon",
     "sidePanel",
     "alarms",
-    "activeTab",
-    "identity"
+    "activeTab"
   ],
-  "host_permissions": [
-    "https://www.googleapis.com/*"
-  ],
-  "oauth2": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "scopes": ["https://www.googleapis.com/auth/drive.file"]
-  },
   "omnibox": {
     "keyword": "qm"
   },
